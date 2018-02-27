@@ -11,99 +11,162 @@ example usage:
 """
 from __future__ import absolute_import
 import os
+from os.path import join as pjoin, abspath, basename, dirname, exists
+from subprocess import check_call
+import shutil
 import tempfile
-import logging
-from xml.etree import ElementTree
 from pathlib import Path
-import zipfile
-from collections import OrderedDict
 import click
-from pathlib import Path
 
 from wagl.acquisition import acquisitions
 
 os.environ["CPL_ZIP_ENCODING"] = "UTF-8"
 
+# NOTE
+# This module was quickly put together to achieve the deadlines
+# and have an operation version of Fmask working for both S2 and Landsat.
+# See TODO below
 
-def prepare_dataset(path, acq_parser_hint=None, granule=None):
+# TODO
+# rework this entire module to be more dynamic for better sensor support
+# potentially use the module and pass in the require vars rather
+# than a command line call.
+
+
+def run_command(command, work_dir):
     """
-    Returns a dictionary of image paths, granule id and metadata file location for the granules
-    contained within the input file
+    A simple utility to execute a subprocess command.
     """
+    check_call(' '.join(command), shell=True, cwd=work_dir)
 
-    acq_container = acquisitions(path, acq_parser_hint)
-    tasks = []
 
-    if granule is None:
-        granules = acq_container.granules
+def _fmask_landsat(acquisition, out_fname, work_dir):
+    """
+    Fmask algorithm for Landsat.
+    """
+    # wild cards for the reflective bands
+    reflective_wcards = {'LANDSAT_5': 'L*_B[1,2,3,4,5,7].TIF',
+                         'LANDSAT_7': 'L*_B[1,2,3,4,5,7].TIF',
+                         'LANDSAT_8': 'LC8*_B[1-7,9].TIF'}
+
+    # wild cards for the thermal bands
+    thermal_wcards = {'LANDSAT_5': 'L*_B6.TIF',
+                      'LANDSAT_7': 'L*_B6_VCID_?.TIF',
+                      'LANDSAT_8': 'LC8*_B1[0,1].TIF'}
+
+    # internal output filenames
+    ref_fname = pjoin(work_dir, 'reflective.img')
+    thm_fname = pjoin(work_dir, 'thermal.img')
+    angles_fname = pjoin(work_dir, 'angles.img')
+    mask_fname = pjoin(work_dir, 'saturation-mask.img')
+    toa_fname = pjoin(work_dir, 'toa-reflectance.img')
+
+    # reflective image stack
+    cmd = ['gdal_merge.py', '-separate', '-of', 'HFA', '-co', 'COMPRESSED=YES',
+           '-o', ref_fname, reflective_wcards[acquisition.platform_id]]
+    run_command(cmd, dirname(acquisition.uri))
+
+    # thermal band(s)
+    cmd = ['gdal_merge.py', '-separate', '-of', 'HFA', '-co', 'COMPRESSED=YES',
+           '-o', thm_fname, thermal_wcards[acquisition.platform_id]]
+    run_command(cmd, dirname(acquisition.uri))
+
+    # copy the mtl to the work space
+    mtl_fname = list(Path(acquisition.uri).parent.glob('*_MTL.txt'))[0]
+    shutil.copyfile(mtl_fname, pjoin(work_dir, mtl_fname.name))
+
+    # angles
+    cmd = ['fmask_usgsLandsatMakeAnglesImage.py', '-m', '*_MTL.txt',
+           '-t', ref_fname, '-o', angles_fname]
+    run_command(cmd, work_dir)
+
+    # saturation
+    cmd = ['fmask_usgs_LandsatSaturationMask.py', '-i', ref_fname,
+           '-m', '*_MTL.txt', '-o', mask_fname]
+    run_command(cmd, work_dir)
+
+    # toa
+    cmd = ['fmask_usgsKandsatTOA.py', '-i', ref_fname, '-m', '*_MTL.txt',
+           '-z', angles_fname, '-o', toa_fname]
+    run_command(cmd, work_dir)
+
+    # fmask
+    cmd = ['fmask_usgsLandsatStacked.py', '-t', thm_fname, '-a', toa_fname,
+           '-m', '*_MTL.txt', '-z', angles_fname, '-s', mask_fname,
+           '-o', out_fname]
+    run_command(cmd, work_dir)
+
+
+def _sentinel2_fmask(dataset_path, container, granule, out_fname, work_dir):
+    """
+    Fmask algorithm for Sentinel-2.
+    """
+    # filenames
+    vrt_fname = pjoin(work_dir, "reflective.vrt")
+    angles_fname = pjoin(work_dir, ".angles.img")
+
+    acqs = []
+    for grp in container.groups:
+        acqs.extend(container.get_acquisitions(grp, granule, False))
+
+    band_ids = [acq.band_id for acq in acqs]
+    required_ids = [str(i) for i in range(1, 13)]
+    required_ids.insert(8, '8A')
+
+    acq = container.get_acqusitions(granule=granule)[0]
+
+    # zipfile extraction
+    xml_out_fname = pjoin(work_dir, Path(acq.granule_xml).name)
+    if ".zip" in acq.uri:
+        cmd = ['unzip', '-p', dataset_path, acq.granule_xml, '>',
+               xml_out_fname]
+        run_command(cmd, work_dir)
+
+    # vrt creation
+    cmd = ["gdalbuildvrt", "-resolution", "user", "-tr", "20", "20",
+           "-separate", "-overwrite", vrt_fname]
+    for band_id in required_ids:
+        acq = acqs[band_ids.index(band_id)]
+        if ".zip" in acq.uri:
+            cmd.append(acq.uri.replace('zip:', '/vsizip/').replace('!', "/"))
+        else:
+            cmd.append(acq.uri)
+
+    run_command(cmd, work_dir)
+
+    # angles generation
+    if ".zip" in acq.uri:
+        cmd = ["fmask_sentinel2makeAnglesImage.py", "-i", xml_out_fname,
+               "-o", angles_fname]
     else:
-        granules = [granule]
+        cmd = ["fmask_sentinel2makeAnglesImage.py", "-i", acq.granule_xml,
+               "-o", angles_fname]
 
-    for granule_id in granules:
-        image_dict = OrderedDict([
-            ('B01', {}), ('B02', {}), ('B03', {}), ('B04', {}), ('B05', {}),
-            ('B06', {}), ('B07', {}), ('B08', {}), ('B8A', {}), ('B09', {}),
-            ('B10', {}), ('B11', {}), ('B12', {})
-        ])
+    run_command(cmd, work_dir)
 
-        for group_id in acq_container.groups:
-            acqs = acq_container.get_acquisitions(granule=granule_id,
-                                                  group=group_id,
-                                                  only_supported_bands=False)
-
-            for acq in acqs:
-                key = Path(acq.uri).stem[-3:]
-                if key in image_dict:
-                    image_dict[key] = {'path': acq.uri, 'layer': '1'}
-
-        tasks.append(tuple([image_dict, granule_id, acq.granule_xml]))
-
-    return tasks
+    # run fmask
+    cmd = ["fmask_sentinel2Stacked.py", "-a", vrt_fname, "-z", angles_fname,
+           "-o", out_fname]
+    run_command(cmd, work_dir)
 
 
-def fmask(dataset_path, task, out_fname, outdir):
+def fmask(dataset_path, granule, out_fname, outdir, acq_parser_hint=None):
     """
     Execute the fmask process.
     """
-    dataset_path = Path(dataset_path)
-    img_dict, granule_id, mtd_xml = task
+    container = acquisitions(dataset_path, acq_parser_hint)
     with tempfile.TemporaryDirectory(dir=outdir,
                                      prefix='pythonfmask-') as tmpdir:
-        # filenames
-        vrt_fname = os.path.join(tmpdir, granule_id + ".vrt")
-        angles_fname = os.path.join(tmpdir, granule_id + ".angles.img")
+        acq = container.get_acqusitions(None, granule, False)[0]
 
-        # zipfile extraction
-        archive_container = os.path.join(tmpdir, Path(mtd_xml).name)
-        if ".zip" in archive_container:
-            logging.info("Unzipping "+mtd_xml)
-            os.system("unzip -p " + str(dataset_path) + " " + mtd_xml + " > " + archive_container)
-
-        # vrt creation
-        command = ["gdalbuildvrt", "-resolution", "user", "-tr", "20", "20",
-                   "-separate", "-overwrite", vrt_fname]
-        for key in img_dict.keys():
-            if ".zip" in archive_container:
-                command.append(img_dict[key]['path'].replace('zip:', '/vsizip/').replace('!', "/"))
-            else:
-                command.append(img_dict[key]['path'])
-
-        command_str = ' '.join(command)
-        logging.info("Create  VRT " + vrt_fname)
-        os.system(command_str)
-
-        # angles generation
-        if "zip" in archive_container:
-            command = "fmask_sentinel2makeAnglesImage.py -i " + archive_container + " -o " + angles_fname
+        if 'SENTINEL' in acq.platform_id:
+            _sentinel2_fmask(dataset_path, container, granule, out_fname,
+                             tmpdir)
+        elif 'LANDSAT' in acq.platform_id:
+            _fmask_landsat(acq, out_fname, tmpdir)
         else:
-            command = "fmask_sentinel2makeAnglesImage.py -i " + mtd_xml + " -o " + angles_fname
-        logging.info("Create angle file " + angles_fname)
-        os.system(command)
-
-        # run fmask
-        command = "fmask_sentinel2Stacked.py -a " + vrt_fname + " -z " + angles_fname + " -o " + out_fname
-        logging.info("Create fmask output " + out_fname)
-        os.system(command)
+            msg = "Sensor not supported"
+            raise Exception(msg)
 
 
 def fmask_cogtif(fname, out_fname):
@@ -124,8 +187,7 @@ def fmask_cogtif(fname, out_fname):
                fname,
                out_fname]
 
-    logging.info("Create fmask cogtif " + out_fname)
-    os.system(' '.join(command))
+    run_command(command, dirname(fname))
 
 
 @click.command(help=__doc__)
@@ -141,18 +203,15 @@ def main(output, datasets):
     For each dataset in input 'datasets' generate FMask and Contiguity
     outputs and write to the destination path specified by 'output'
     """
-    logging.basicConfig(format='%(asctime)s %(levelname)s %(message)s', level=logging.INFO)
     for dataset in datasets:
-        outpath = os.path.join(os.path.abspath(output),
-                               os.path.basename(dataset) + '.fmask')
-        if not os.path.exists(outpath):
+        outpath = pjoin(abspath(output), basename(dataset) + '.fmask')
+        if not exists(outpath):
             os.makedirs(outpath)
 
-        path = Path(dataset)
-        tasks = prepare_dataset(path)
-        for i in tasks:
-            out_fname = os.path.join(outpath, '{}.cloud.img'.format(i[1]))
-            fmask(path, i, out_fname)
+        container = acquisitions(dataset)
+        for grn in container.granules:
+            out_fname = pjoin(outpath, '{}.cloud.img'.format(grn))
+            fmask(dataset, grn, out_fname, outpath)
 
 
 if __name__ == "__main__":
