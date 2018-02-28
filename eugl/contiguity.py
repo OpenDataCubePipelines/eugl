@@ -18,7 +18,7 @@ from wagl.geobox import GriddedGeoBox
 
 os.environ["CPL_ZIP_ENCODING"] = "UTF-8"
 
-def do_contiguity(fname, output):
+def contiguity(fname, output):
     """
     Write a contiguity mask file based on the intersection of valid data pixels across all
     bands from the input file and output to the specified directory
@@ -58,7 +58,7 @@ def main(output, datasets):
         out = os.path.join(output, stem)
         contiguity = out+".CONTIGUITY.TIF"
         logging.info("Create contiguity image " + contiguity)
-        do_contiguity(path, contiguity)
+        contiguity(path, contiguity)
 
 if __name__ == "__main__":
     main()
