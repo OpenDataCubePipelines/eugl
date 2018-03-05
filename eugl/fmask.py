@@ -157,7 +157,7 @@ def fmask(dataset_path, granule, out_fname, outdir, acq_parser_hint=None):
     container = acquisitions(dataset_path, acq_parser_hint)
     with tempfile.TemporaryDirectory(dir=outdir,
                                      prefix='pythonfmask-') as tmpdir:
-        acq = container.get_acqusitions(None, granule, False)[0]
+        acq = container.get_acquisitions(None, granule, False)[0]
 
         if 'SENTINEL' in acq.platform_id:
             _sentinel2_fmask(dataset_path, container, granule, out_fname,
