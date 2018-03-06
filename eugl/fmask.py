@@ -73,7 +73,7 @@ def _fmask_landsat(acquisition, out_fname, work_dir):
 
     # copy the mtl to the work space
     mtl_fname = list(Path(acquisition.uri).parent.glob('*_MTL.txt'))[0]
-    shutil.copyfile(mtl_fname, pjoin(work_dir, mtl_fname.name))
+    shutil.copyfile(str(mtl_fname), pjoin(work_dir, mtl_fname.name))
 
     # angles
     cmd = ['fmask_usgsLandsatMakeAnglesImage.py', '-m', '*_MTL.txt',
