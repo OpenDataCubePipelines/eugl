@@ -4,16 +4,11 @@ Execution method for FMask - http://pythonfmask.org - (cloud, cloud shadow, wate
 snow/ice classification) code supporting Sentinel-2 Level 1 C SAFE format zip archives hosted by the
 Australian Copernicus Data Hub - http://www.copernicus.gov.au/ - for direct (zip) read access
 by datacube.
-
-example usage:
-    fmask_cophub.py S2A_MSIL1C_20170104T052712_N0204_R019_T43MDR_20170104T052713.zip
-    --output /tmp/
 """
 from __future__ import absolute_import
 import os
 from os.path import join as pjoin, abspath, basename, dirname, exists
 from subprocess import check_call
-import shutil
 import tempfile
 from pathlib import Path
 import click
@@ -47,12 +42,12 @@ def _fmask_landsat(acquisition, out_fname, work_dir):
     # wild cards for the reflective bands
     reflective_wcards = {'LANDSAT_5': 'L*_B[1,2,3,4,5,7].TIF',
                          'LANDSAT_7': 'L*_B[1,2,3,4,5,7].TIF',
-                         'LANDSAT_8': 'LC8*_B[1-7,9].TIF'}
+                         'LANDSAT_8': 'L*_B[1-7,9].TIF'}
 
     # wild cards for the thermal bands
     thermal_wcards = {'LANDSAT_5': 'L*_B6.TIF',
                       'LANDSAT_7': 'L*_B6_VCID_?.TIF',
-                      'LANDSAT_8': 'LC8*_B1[0,1].TIF'}
+                      'LANDSAT_8': 'L*_B1[0,1].TIF'}
 
     # internal output filenames
     ref_fname = pjoin(work_dir, 'reflective.img')
@@ -72,27 +67,26 @@ def _fmask_landsat(acquisition, out_fname, work_dir):
     run_command(cmd, dirname(acquisition.uri))
 
     # copy the mtl to the work space
-    mtl_fname = list(Path(acquisition.uri).parent.glob('*_MTL.txt'))[0]
-    shutil.copyfile(str(mtl_fname), pjoin(work_dir, mtl_fname.name))
+    mtl_fname = str(list(Path(acquisition.uri).parent.glob('*_MTL.txt'))[0])
 
     # angles
-    cmd = ['fmask_usgsLandsatMakeAnglesImage.py', '-m', '*_MTL.txt',
+    cmd = ['fmask_usgsLandsatMakeAnglesImage.py', '-m', mtl_fname,
            '-t', ref_fname, '-o', angles_fname]
     run_command(cmd, work_dir)
 
     # saturation
-    cmd = ['fmask_usgs_LandsatSaturationMask.py', '-i', ref_fname,
-           '-m', '*_MTL.txt', '-o', mask_fname]
+    cmd = ['fmask_usgsLandsatSaturationMask.py', '-i', ref_fname,
+           '-m', mtl_fname, '-o', mask_fname]
     run_command(cmd, work_dir)
 
     # toa
-    cmd = ['fmask_usgsKandsatTOA.py', '-i', ref_fname, '-m', '*_MTL.txt',
+    cmd = ['fmask_usgsLandsatTOA.py', '-i', ref_fname, '-m', mtl_fname,
            '-z', angles_fname, '-o', toa_fname]
     run_command(cmd, work_dir)
 
     # fmask
     cmd = ['fmask_usgsLandsatStacked.py', '-t', thm_fname, '-a', toa_fname,
-           '-m', '*_MTL.txt', '-z', angles_fname, '-s', mask_fname,
+           '-m', mtl_fname, '-z', angles_fname, '-s', mask_fname,
            '-o', out_fname]
     run_command(cmd, work_dir)
 
@@ -188,31 +182,3 @@ def fmask_cogtif(fname, out_fname):
                out_fname]
 
     run_command(command, dirname(fname))
-
-
-@click.command(help=__doc__)
-@click.option('--output', help="Write datasets into this directory",
-              type=click.Path(exists=False, writable=True, dir_okay=True))
-@click.argument('datasets',
-                type=click.Path(exists=True, readable=True, writable=False),
-                nargs=-1)
-
-
-def main(output, datasets):
-    """
-    For each dataset in input 'datasets' generate FMask and Contiguity
-    outputs and write to the destination path specified by 'output'
-    """
-    for dataset in datasets:
-        outpath = pjoin(abspath(output), basename(dataset) + '.fmask')
-        if not exists(outpath):
-            os.makedirs(outpath)
-
-        container = acquisitions(dataset)
-        for grn in container.granules:
-            out_fname = pjoin(outpath, '{}.cloud.img'.format(grn))
-            fmask(dataset, grn, out_fname, outpath)
-
-
-if __name__ == "__main__":
-    main()
