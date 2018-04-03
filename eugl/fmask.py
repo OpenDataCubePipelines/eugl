@@ -107,7 +107,7 @@ def _sentinel2_fmask(dataset_path, container, granule, out_fname, work_dir):
     required_ids = [str(i) for i in range(1, 13)]
     required_ids.insert(8, '8A')
 
-    acq = container.get_acqusitions(granule=granule)[0]
+    acq = container.get_acquisitions(granule=granule)[0]
 
     # zipfile extraction
     xml_out_fname = pjoin(work_dir, Path(acq.granule_xml).name)
