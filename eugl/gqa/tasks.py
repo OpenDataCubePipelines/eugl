@@ -4,9 +4,9 @@
 QGA Workflow
 -------------
 
-Workflow settings can be configured in `gqa.cfg` file.
-
+Workflow settings can be configured in `luigi.cfg` file.
 """
+
 # pylint: disable=missing-docstring,no-init,too-many-function-args
 # pylint: disable=too-many-locals
 
@@ -27,15 +27,19 @@ import pandas
 import rasterio
 from rasterio.warp import Resampling
 from pathlib import Path
+from shapely.geometry import Polygon
+import h5py
 
 from wagl.acquisition import acquisitions
+from wagl.singlefile_workflow import DataStandardisation
 from wagl.constants import BandType
-from gqa.geometric_utils import SLC_OFF
-from gqa.geometric_utils import calculate_gqa
-from gqa.geometric_utils import get_reference_data
-from gqa.geometric_utils import gverify
-from gqa.geometric_utils import reproject
-from gqa.geometric_utils import _write_failure_yaml
+from wagl.geobox import GriddedGeoBox
+from eugl.gqa.geometric_utils import SLC_OFF
+from eugl.gqa.geometric_utils import calculate_gqa
+from eugl.gqa.geometric_utils import get_reference_data
+from eugl.gqa.geometric_utils import gverify
+from eugl.gqa.geometric_utils import reproject
+from eugl.gqa.geometric_utils import _write_failure_yaml
 from eodatasets.metadata.gqa import populate_from_gqa
 from eodatasets.serialise import read_yaml_metadata
 from eodatasets.serialise import write_yaml_metadata
@@ -46,7 +50,8 @@ from eodatasets.verify import PackageChecksum
 #      for better and cleaner examples of luigi construction
 
 # TODO include the S2 ocean list (quick implementation. Long term solution would be geometry related)
-REEF_PR = resource_filename('gqa', 'ocean_list.csv')
+# TODO do not forget about the Landsat ocean list
+REEF_PR = resource_filename('eugl.gqa', 'S2_ocean_list.csv')
 
 # TODO convert to structlog
 _LOG = logging.getLogger(__name__)
@@ -55,7 +60,9 @@ _LOG = logging.getLogger(__name__)
 # rather than find and read the internal cfg.
 # Similar to how wagl and tesp do it
 CONFIG = luigi.configuration.get_config()
-CONFIG.add_config_path(resource_filename('gqa', 'gqa-defaults.luigi.cfg'))
+
+# TODO purge this
+# CONFIG.add_config_path(resource_filename('gqa', 'gqa-defaults.luigi.cfg'))
 
 # TODO variable change; scene id is landsat specific, level1 is more generic
 # TODO remove refs to l1t (landsat specific)
@@ -63,9 +70,9 @@ CONFIG.add_config_path(resource_filename('gqa', 'gqa-defaults.luigi.cfg'))
 
 # TODO path/row are no longer properties of acquisition as they're landsat
 #      specific. Need alternate method of finding correct reference directory
-def _can_process(l1t_path, granule=granule):
+def _can_process(l1t_path, granule):
     _LOG.debug('Checking L1T: %r', l1t_path)
-    acqs = acquisitions(l1t_path).get_all_acquisitions(granule=granule)
+    acqs = acquisitions(l1t_path).get_all_acquisitions(granule)
     landsat_path = int(acqs[0].path)
     landsat_row = int(acqs[0].row)
 
@@ -457,7 +464,27 @@ class NotProcessedTask(luigi.Task):
             src.writelines(report)
 
 
-# TODO import this task into tesp
+class GQATask(luigi.Task):
+    level1 = luigi.Parameter()
+    granule = luigi.Parameter()
+    workdir = luigi.Parameter()
+
+    def requires(self):
+        return [DataStandardisation(self.level1, self.workdir, self.granule)]
+
+    def output(self):
+        return luigi.LocalTarget(pjoin(self.workdir, '{}.gqa.yaml'.format(self.granule)))
+
+    def run(self):
+        [h5_file] = self.input()
+        h5 = h5py.File(h5_file.path, 'r')
+        dataset_location = self.granule
+        for ID in h5[dataset_location].keys():
+            _LOG.debug('key in dataset: %s', ID)
+        raise ValueError("YOU_ARE_HERE")
+
+
+# TODO delete this once GQATask is done
 class GqaTask(luigi.Task):
 
     """
@@ -466,19 +493,17 @@ class GqaTask(luigi.Task):
     reference imagery available.
     """
 
-    # TODO remove refs to l1t (landsat specific)
-    #: :type: str
-    l1t_path = luigi.Parameter()
-    #: :type: str
-    out_path = luigi.Parameter()
+    level1 = luigi.Parameter()
+    granule = luigi.Parameter()
+    workdir = luigi.Parameter()
 
     def requires(self):
         out_path = self.out_path + '-work'
-        process, msg = _can_process(self.l1t_path)
+        process, msg = _can_process(self.level1)
         if process:
-            return [CalculateGQA(self.l1t_path, out_path)]
+            return [CalculateGQA(self.level1, out_path)]
         else:
-            return [NotProcessedTask(self.l1t_path, out_path, msg)]
+            return [NotProcessedTask(self.level1, out_path, msg)]
 
     def output(self):
         out_path = self.out_path
@@ -504,6 +529,7 @@ class GqaTask(luigi.Task):
 
 
 # TODO import this task into tesp
+# TODO enable updating dataset in-place
 class UpdateSource(luigi.Task):
 
     """
@@ -525,7 +551,7 @@ class UpdateSource(luigi.Task):
     out_path = luigi.Parameter()
 
     def requires(self):
-        return [GqaTask(self.l1t_path, self.out_path)]
+        return [GQATask(self.l1t_path, self.out_path)]
 
     def output(self):
         out_path = self.out_path
@@ -587,28 +613,36 @@ class UpdateSource(luigi.Task):
 
 
 class GQA(luigi.WrapperTask):
+    # this is a convenient entry point
+    # to process a list of level1 datasets
 
     level1_list = luigi.Parameter()
     workdir = luigi.Parameter()
-    update_source = luigi.BoolParameter()
+    acq_parser_hint = luigi.Parameter(default=None)
+
+    # TODO enable updating dataset in-place
+    # update_source = luigi.BoolParameter()
 
     def requires(self):
         with open(self.level1_list) as src:
             level1_list = [level1.strip() for level1 in src.readlines()]
 
         tasks = []
-        # TODO check with lan-wei regarding multi-granule vs single-granule
+        # TODO check with Lan-Wei regarding multi-granule vs single-granule
         #      gqa operation.
         #      Below demo's submit all granules as single granule gqa operation
         #      (same as wagl)
         for level1 in level1_list:
-            work_root = pjoin(self.workdir, '{}.GQA'.format(basename(level1)))
+            # work_root = pjoin(self.workdir, '{}.GQA'.format(basename(level1)))
             container = acquisitions(level1, self.acq_parser_hint)
             for granule in container.granules:
-            if update_source:
-                tasks.append(UpdateSource(level1, work_root))
-            else:
-                tasks.append(GqaTask(level1, work_root))
+            # TODO enable updating dataset in-place
+            # if update_source:
+            #     tasks.append(UpdateSource(level1, work_root))
+            # else:
+                tasks.append(GQATask(level1, granule, self.workdir))
+
+        return tasks
 
 
 if __name__ == '__main__':

@@ -5,7 +5,7 @@ from setuptools import setup
 setup(name='eugl',
       version='0.0.2',
       description='Modules that deal with sensor and data quality characterisation.',
-      packages=['eugl'],
+      packages=['eugl', 'eugl.gqa'],
       install_requires=[
           'click',
           'click_datetime',

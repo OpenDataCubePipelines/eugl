@@ -13,7 +13,7 @@ import yaml
 import pandas
 import rasterio
 from rasterio.warp import Resampling
-from gqa.version import get_version
+from eugl.version import get_version
 
 
 def _rounded(d):
