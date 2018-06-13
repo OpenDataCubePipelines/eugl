@@ -27,7 +27,8 @@ import pandas
 import rasterio
 from rasterio.warp import Resampling
 from pathlib import Path
-from shapely.geometry import Polygon
+from shapely.geometry import Polygon, shape
+import fiona
 import h5py
 
 from wagl.acquisition import acquisitions
@@ -51,6 +52,7 @@ from eodatasets.verify import PackageChecksum
 
 # TODO include the S2 ocean list (quick implementation. Long term solution would be geometry related)
 # TODO do not forget about the Landsat ocean list
+# TODO remove these two .csv files from this tree, and find a permanent home for them
 REEF_PR = resource_filename('eugl.gqa', 'S2_ocean_list.csv')
 
 # TODO convert to structlog
@@ -66,6 +68,66 @@ CONFIG = luigi.configuration.get_config()
 
 # TODO variable change; scene id is landsat specific, level1 is more generic
 # TODO remove refs to l1t (landsat specific)
+
+
+class GQATask(luigi.Task):
+    """
+    WIP: GQA for Sentinel-2.
+    TODO: Landsat compatibility.
+    """
+
+    level1 = luigi.Parameter()
+    granule = luigi.Parameter()
+    workdir = luigi.Parameter()
+    ocean_tile_list = luigi.Parameter()
+    reference_directory = luigi.Parameter()
+    backup_reference = luigi.Parameter()
+    gverify_binary = luigi.Parameter()
+    landsat_scenes_shapefile = luigi.Parameter()
+
+    def requires(self):
+        return [DataStandardisation(self.level1, self.workdir, self.granule)]
+
+    def output(self):
+        # TODO could it be that the GQA cannot be calculated?
+        return luigi.LocalTarget(pjoin(self.workdir, '{}.gqa.yaml'.format(self.granule)))
+
+    def run(self):
+        [h5_file] = self.input()
+        h5 = h5py.File(h5_file.path, 'r')
+
+        # TODO select BAND based on ocean tiles
+        band = "BAND-2"
+        dataset_location = f"{self.granule}/RES-GROUP-0/STANDARDISED-PRODUCTS/REFLECTANCE/NBART/{band}"
+
+        _LOG.debug('level1: %s', self.level1)
+        _LOG.debug('granule: %s', self.granule)
+        _LOG.debug('workdir: %s', self.workdir)
+        _LOG.debug('ocean tile list: %s', self.ocean_tile_list)
+        _LOG.debug('reference directory: %s', self.reference_directory)
+        _LOG.debug('backup reference: %s', self.backup_reference)
+        _LOG.debug('gverify_binary: %s', self.gverify_binary)
+
+        tile_id = self.granule.split('_')[-2][1:]
+        _LOG.debug('tile id: %s', tile_id)
+
+        geobox = GriddedGeoBox.from_dataset(h5[dataset_location])
+        poly = Polygon([geobox.ul_lonlat, geobox.ur_lonlat, geobox.lr_lonlat, geobox.ll_lonlat])
+        _LOG.debug('geobox: %r', geobox)
+        _LOG.debug('wkt: %r', geobox.crs.ExportToWkt())
+        _LOG.debug('poly: %r', poly)
+        _LOG.debug('landsat scene shapefile: %s', self.landsat_scenes_shapefile)
+
+        landsat_scenes = fiona.open(self.landsat_scenes_shapefile)
+
+        intersecting_scenes = [{'path': scene['properties']['PATH'], 'row': scene['properties']['ROW']}
+                               for scene in landsat_scenes
+                               if shape(scene['geometry']).intersects(poly)]
+
+        for scene in intersecting_scenes:
+            _LOG.debug('scene: %r', scene)
+
+        raise ValueError("YOU_ARE_HERE")
 
 
 # TODO path/row are no longer properties of acquisition as they're landsat
@@ -462,26 +524,6 @@ class NotProcessedTask(luigi.Task):
                   self.msg]
         with open(pjoin(self.out_path, 'gverify.log'), 'w') as src:
             src.writelines(report)
-
-
-class GQATask(luigi.Task):
-    level1 = luigi.Parameter()
-    granule = luigi.Parameter()
-    workdir = luigi.Parameter()
-
-    def requires(self):
-        return [DataStandardisation(self.level1, self.workdir, self.granule)]
-
-    def output(self):
-        return luigi.LocalTarget(pjoin(self.workdir, '{}.gqa.yaml'.format(self.granule)))
-
-    def run(self):
-        [h5_file] = self.input()
-        h5 = h5py.File(h5_file.path, 'r')
-        dataset_location = self.granule
-        for ID in h5[dataset_location].keys():
-            _LOG.debug('key in dataset: %s', ID)
-        raise ValueError("YOU_ARE_HERE")
 
 
 # TODO delete this once GQATask is done
