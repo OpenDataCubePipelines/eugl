@@ -22,6 +22,7 @@ import shutil
 import traceback
 import argparse
 from datetime import datetime
+from dateutil.tz import tzutc
 
 import luigi
 import osr
@@ -99,9 +100,7 @@ class GQATask(luigi.Task):
 
     def output(self):
         output_yaml = pjoin(self.workdir, self.output_yaml.format(granule=self.granule))
-        # TODO remove this ".dummy" bit when finished
-        # TODO it is for now there to prevent this task from being completed successfully
-        return luigi.LocalTarget(output_yaml + ".dummy")
+        return luigi.LocalTarget(output_yaml)
 
     def run(self):
         temp_directory = pjoin(self.workdir, 'work')
@@ -142,7 +141,9 @@ class GQATask(luigi.Task):
                 src.write(str(ve))
 
         self.output().makedirs()
-        shutil.copy(temp_yaml, self.output().path)
+        # TODO remove this ".dummy" bit when finished
+        # TODO it is for now there to prevent this task from being completed successfully
+        shutil.copy(temp_yaml, self.output().path + ".dummy")
 
         for temp_log in glob.glob(pjoin(temp_directory, '*gverify.log')):
             shutil.copy(temp_log, pjoin(self.workdir, basename(temp_log)))
@@ -204,12 +205,16 @@ def reference_imagery(path_rows, timestamp, band_id, reference_directories):
         first, *rest = directories
         folder = pjoin(first, path, row)
         if isdir(folder):
-            return closest_match(folder, timestamp, band_id)
+            # TODO landsat sat_id
+            return closest_match(folder, timestamp, band_id, 's2')
         return find_references(entry, rest)
 
     result = [reference
               for entry in australian
               for reference in find_references(entry, reference_directories)]
+
+    _LOG.debug('found references:')
+    _LOG.debug(str(result))
 
     if result == []:
         raise ValueError(f"No reference found for {path_rows}")
@@ -217,10 +222,10 @@ def reference_imagery(path_rows, timestamp, band_id, reference_directories):
     return result
 
 
-def closest_match(folder, timestamp, band_id):
+def closest_match(folder, timestamp, band_id, sat_id):
     # copied from geometric_utils.get_reference_data
 
-    filenames = [pjoin(folder, name)
+    filenames = [name
                  for name in os.listdir(folder)
                  if splitext(name)[1].lower() in ['.tif', '.tiff']]
 
@@ -234,21 +239,20 @@ def closest_match(folder, timestamp, band_id):
     pattern2 = re.compile("p(?P<path>[0-9]{3})r(?P<row>[0-9]{3})(?P<junk>_[A-Za-z, 0-9]{3})"
                           "(?P<date>[0-9]{8})_z(?P<zone>[0-9]{2})_(?P<band>[0-9]{2})")
 
-    # TODO: make this a parameter?
-    tag = 's2'
-
     for filename in filenames:
         match1 = pattern1.match(filename)
         match2 = pattern2.match(filename)
 
         if match1 is not None:
-            if match1.group('band') != BAND_MAP[match1.group('sat')][tag][band_id]:
+            _LOG.debug('match: %s', str(match1.groupdict()))
+            if match1.group('band') != BAND_MAP[match1.group('sat')][sat_id][band_id]:
                 continue
 
             date = datetime.strptime(match1.group('date'), '%Y%j')
 
         elif match2 is not None:
-            if match2.group('band') != OLD_BAND_MAP[tag][band_id]:
+            _LOG.debug('match: %s', str(match2.groupdict()))
+            if match2.group('band') != OLD_BAND_MAP[sat_id][band_id]:
                 continue
 
             date = datetime.strptime(match2.group('date'), '%Y%m%d')
@@ -258,7 +262,10 @@ def closest_match(folder, timestamp, band_id):
 
         df = df.append({"filename": filename, "date": date}, ignore_index=True)
 
-    closest = df.loc[(df['date'] - timestamp).abs().argmin()]
+    _LOG.debug('date: %r', date)
+    _LOG.debug('timestamp: %r', timestamp)
+
+    closest = df.loc[(df['date'].replace(tzinfo=tzutc()) - timestamp).abs().argmin()]
     return [pjoin(folder, closest['filename'])]
 
 
