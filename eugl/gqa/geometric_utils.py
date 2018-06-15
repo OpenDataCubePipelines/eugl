@@ -105,7 +105,8 @@ BAND_MAP = {'LE7': {'ls5': {'1': 'B1',
                             '6': 'B5',
                             '7': 'B7',
                             '10': 'B6_VCID_1',
-                            '11': 'B6_VCID_1'}},
+                            '11': 'B6_VCID_1'},
+                    's2':  {}}, # TODO
             'LT5': {'ls5': {'1': 'B1',
                             '2': 'B2',
                             '3': 'B3',
@@ -129,7 +130,8 @@ BAND_MAP = {'LE7': {'ls5': {'1': 'B1',
                             '6': 'B5',
                             '7': 'B7',
                             '10': 'B6_VCID_1',
-                            '11': 'B6_VCID_1'}},
+                            '11': 'B6_VCID_1'},
+                    's2':  {}}, # TODO
             'LC8': {'ls5': {'1': 'B2',
                             '2': 'B3',
                             '3': 'B4',
@@ -153,7 +155,8 @@ BAND_MAP = {'LE7': {'ls5': {'1': 'B1',
                             '6': 'B6',
                             '7': 'B7',
                             '10': 'B10',
-                            '11': 'B11'}},
+                            '11': 'B11'},
+                    's2':  {}}, # TODO
             'LO8': {'ls5': {'1': 'B2',
                             '2': 'B3',
                             '3': 'B4',
@@ -177,7 +180,8 @@ BAND_MAP = {'LE7': {'ls5': {'1': 'B1',
                             '6': 'B6',
                             '7': 'B7',
                             '10': 'B10',
-                            '11': 'B11'}}}
+                            '11': 'B11'},
+                    's2':  {}}} # TODO
 
 
 OLD_BAND_MAP = {'ls5': {'1': '10',
@@ -203,7 +207,8 @@ OLD_BAND_MAP = {'ls5': {'1': '10',
                         '6': '50',
                         '7': '70',
                         '10': '61',
-                        '11': '61'}}
+                        '11': '61'},
+                's2':  {}} # TODO
 
 
 def call_gverify(source_image, reference_image, out_path, pyramid_levels=5,
@@ -236,6 +241,8 @@ def call_gverify(source_image, reference_image, out_path, pyramid_levels=5,
 
     # TODO; pass through gverify lib path, gdal_data path, geotiff_csv path
     GVERIFY_LIB_PATH = ''
+
+    # TODO: GDAL_DATA and GEOTIFF_CSV values
 
     # We call bash explicitly because we're using bash syntax ("shell=True" could be anything)
     wrapped_cmd = (

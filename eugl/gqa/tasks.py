@@ -12,14 +12,16 @@ Workflow settings can be configured in `luigi.cfg` file.
 
 from __future__ import print_function
 
+import re
 import logging
 import os
-from os.path import join as pjoin, dirname, basename, exists, isdir
+from os.path import join as pjoin, dirname, basename, exists, isdir, splitext
 import glob
 from pkg_resources import resource_filename
 import shutil
 import traceback
 import argparse
+from datetime import datetime
 
 import luigi
 import osr
@@ -30,11 +32,13 @@ from pathlib import Path
 from shapely.geometry import Polygon, shape
 import fiona
 import h5py
+from dateutil.parser import parse as parse_timestamp
 
 from wagl.acquisition import acquisitions
 from wagl.singlefile_workflow import DataStandardisation
 from wagl.constants import BandType
 from wagl.geobox import GriddedGeoBox
+from eugl.gqa.geometric_utils import BAND_MAP, OLD_BAND_MAP
 from eugl.gqa.geometric_utils import SLC_OFF
 from eugl.gqa.geometric_utils import calculate_gqa
 from eugl.gqa.geometric_utils import get_reference_data
@@ -74,6 +78,7 @@ class GQATask(luigi.Task):
     """
     WIP: GQA for Sentinel-2.
     TODO: Landsat compatibility.
+    TODO: Modularity.
     """
 
     level1 = luigi.Parameter()
@@ -84,50 +89,177 @@ class GQATask(luigi.Task):
     backup_reference = luigi.Parameter()
     gverify_binary = luigi.Parameter()
     landsat_scenes_shapefile = luigi.Parameter()
+    output_yaml = luigi.Parameter()
+    land_band = luigi.Parameter()
+    ocean_band = luigi.Parameter()
+    cleanup = luigi.Parameter()
 
     def requires(self):
         return [DataStandardisation(self.level1, self.workdir, self.granule)]
 
     def output(self):
-        # TODO could it be that the GQA cannot be calculated?
-        return luigi.LocalTarget(pjoin(self.workdir, '{}.gqa.yaml'.format(self.granule)))
+        output_yaml = pjoin(self.workdir, self.output_yaml.format(granule=self.granule))
+        # TODO remove this ".dummy" bit when finished
+        # TODO it is for now there to prevent this task from being completed successfully
+        return luigi.LocalTarget(output_yaml + ".dummy")
 
     def run(self):
-        [h5_file] = self.input()
-        h5 = h5py.File(h5_file.path, 'r')
+        temp_directory = pjoin(self.workdir, 'work')
+        if not exists(temp_directory):
+            os.makedirs(temp_directory)
 
-        # TODO select BAND based on ocean tiles
-        band = "BAND-2"
-        dataset_location = f"{self.granule}/RES-GROUP-0/STANDARDISED-PRODUCTS/REFLECTANCE/NBART/{band}"
+        temp_yaml = pjoin(temp_directory, self.output_yaml.format(granule=self.granule))
 
-        _LOG.debug('level1: %s', self.level1)
-        _LOG.debug('granule: %s', self.granule)
-        _LOG.debug('workdir: %s', self.workdir)
-        _LOG.debug('ocean tile list: %s', self.ocean_tile_list)
-        _LOG.debug('reference directory: %s', self.reference_directory)
-        _LOG.debug('backup reference: %s', self.backup_reference)
-        _LOG.debug('gverify_binary: %s', self.gverify_binary)
+        try:
+            land = is_land_tile(self.granule, self.ocean_tile_list)
+            if land:
+                location = "{}/{}".format(self.granule, self.land_band)
+            else:
+                location = "{}/{}".format(self.granule, self.ocean_band)
 
-        tile_id = self.granule.split('_')[-2][1:]
-        _LOG.debug('tile id: %s', tile_id)
+            h5 = h5py.File(self.input()[0].path, 'r')
+            geobox = GriddedGeoBox.from_dataset(h5[location])
+            source_wkt = geobox.crs.ExportToWkt()
 
-        geobox = GriddedGeoBox.from_dataset(h5[dataset_location])
-        poly = Polygon([geobox.ul_lonlat, geobox.ur_lonlat, geobox.lr_lonlat, geobox.ll_lonlat])
-        _LOG.debug('geobox: %r', geobox)
-        _LOG.debug('wkt: %r', geobox.crs.ExportToWkt())
-        _LOG.debug('poly: %r', poly)
-        _LOG.debug('landsat scene shapefile: %s', self.landsat_scenes_shapefile)
+            landsat_scenes = intersecting_landsat_scenes(geobox_to_polygon(geobox),
+                                                         self.landsat_scenes_shapefile)
+            timestamp = acquisition_timestamp(h5, self.granule)
+            references = reference_imagery(landsat_scenes, timestamp, h5[location].attrs['band_id'],
+                                           [self.reference_directory, self.backup_reference])
 
-        landsat_scenes = fiona.open(self.landsat_scenes_shapefile)
+            for ref in references:
+                _LOG.debug('reference: %r', ref)
 
-        intersecting_scenes = [{'path': scene['properties']['PATH'], 'row': scene['properties']['ROW']}
-                               for scene in landsat_scenes
-                               if shape(scene['geometry']).intersects(poly)]
+            # TODO reproject, buildvrt, run gverify, parse results
+            # TODO if I want to reproject the reference images
+            # TODO then I have to make sure I take care of ls7 images
 
-        for scene in intersecting_scenes:
-            _LOG.debug('scene: %r', scene)
+        except ValueError as ve:
+            # failed because GQA cannot be calculated
+            _write_failure_yaml(temp_yaml, self.granule, str(ve))
+            with open(pjoin(temp_directory, 'gverify.log'), 'w') as src:
+                src.write('gverify was not executed because:')
+                src.write(str(ve))
 
-        raise ValueError("YOU_ARE_HERE")
+        self.output().makedirs()
+        shutil.copy(temp_yaml, self.output().path)
+
+        for temp_log in glob.glob(pjoin(temp_directory, '*gverify.log')):
+            shutil.copy(temp_log, pjoin(self.workdir, basename(temp_log)))
+            break
+
+        if self.cleanup:
+            _cleanup_workspace(temp_directory)
+
+
+def acquisition_timestamp(h5_file, granule):
+    result = h5_file[f'{granule}/ATMOSPHERIC-INPUTS'].attrs['acquisition-datetime']
+    return parse_timestamp(result)
+
+
+def is_land_tile(granule, ocean_tile_list):
+    tile_id = granule.split('_')[-2][1:]
+
+    with open(ocean_tile_list) as fl:
+        for line in fl:
+            if tile_id == line.strip():
+                _LOG.debug('tile %s is an ocean tile', tile_id)
+                return False
+
+    _LOG.debug('tile %s is a land tile', tile_id)
+    return True
+
+
+def geobox_to_polygon(geobox):
+    return Polygon([geobox.ul_lonlat, geobox.ur_lonlat,
+                    geobox.lr_lonlat, geobox.ll_lonlat])
+
+
+def intersecting_landsat_scenes(dataset_polygon, landsat_scenes_shapefile):
+    landsat_scenes = fiona.open(landsat_scenes_shapefile)
+
+    def path_row(properties):
+        return dict(path=int(properties['PATH']), row=int(properties['ROW']))
+
+    return [path_row(scene['properties'])
+            for scene in landsat_scenes
+            if shape(scene['geometry']).intersects(dataset_polygon)]
+
+
+def reference_imagery(path_rows, timestamp, band_id, reference_directories):
+    australian = [entry
+                  for entry in path_rows
+                  if 87 <= entry['path'] <= 116 and 67 <= entry['row'] <= 91]
+
+    if australian == []:
+        raise ValueError("No Australian path row found")
+
+    def find_references(entry, directories):
+        path = '{0:0=3d}'.format(entry['path'])
+        row = '{0:0=3d}'.format(entry['row'])
+
+        if directories == []:
+            return []
+
+        first, *rest = directories
+        folder = pjoin(first, path, row)
+        if isdir(folder):
+            return closest_match(folder, timestamp, band_id)
+        return find_references(entry, rest)
+
+    result = [reference
+              for entry in australian
+              for reference in find_references(entry, reference_directories)]
+
+    if result == []:
+        raise ValueError(f"No reference found for {path_rows}")
+
+    return result
+
+
+def closest_match(folder, timestamp, band_id):
+    # copied from geometric_utils.get_reference_data
+
+    filenames = [pjoin(folder, name)
+                 for name in os.listdir(folder)
+                 if splitext(name)[1].lower() in ['.tif', '.tiff']]
+
+    if filenames == []:
+        return []
+
+    df = pandas.DataFrame(columns=["filename", "date"])
+
+    pattern1 = re.compile("(?P<sat>[A-Z, 0-9]{3})(?P<pr>[0-9]{6})(?P<date>[0-9]{7})"
+                          "(?P<stuff>\\w+?_)(?P<band>\\w+)")
+    pattern2 = re.compile("p(?P<path>[0-9]{3})r(?P<row>[0-9]{3})(?P<junk>_[A-Za-z, 0-9]{3})"
+                          "(?P<date>[0-9]{8})_z(?P<zone>[0-9]{2})_(?P<band>[0-9]{2})")
+
+    # TODO: make this a parameter?
+    tag = 's2'
+
+    for filename in filenames:
+        match1 = pattern1.match(filename)
+        match2 = pattern2.match(filename)
+
+        if match1 is not None:
+            if match1.group('band') != BAND_MAP[match1.group('sat')][tag][band_id]:
+                continue
+
+            date = datetime.strptime(match1.group('date'), '%Y%j')
+
+        elif match2 is not None:
+            if match2.group('band') != OLD_BAND_MAP[tag][band_id]:
+                continue
+
+            date = datetime.strptime(match2.group('date'), '%Y%m%d')
+
+        else:
+            continue
+
+        df = df.append({"filename": filename, "date": date}, ignore_index=True)
+
+    closest = df.loc[(df['date'] - timestamp).abs().argmin()]
+    return [pjoin(folder, closest['filename'])]
 
 
 # TODO path/row are no longer properties of acquisition as they're landsat
@@ -666,25 +798,22 @@ class GQA(luigi.WrapperTask):
     # update_source = luigi.BoolParameter()
 
     def requires(self):
+        def tasks(level1_list):
+            # TODO check with Lan-Wei regarding multi-granule vs single-granule
+            #      gqa operation.
+            #      Below demo's submit all granules as single granule gqa operation
+            #      (same as wagl)
+            for level1 in level1_list:
+                container = acquisitions(level1, self.acq_parser_hint)
+                for granule in container.granules:
+                # TODO enable updating dataset in-place
+                # if update_source:
+                #     yield UpdateSource(level1, work_root)
+                # else:
+                    yield GQATask(level1, granule, self.workdir)
+
         with open(self.level1_list) as src:
-            level1_list = [level1.strip() for level1 in src.readlines()]
-
-        tasks = []
-        # TODO check with Lan-Wei regarding multi-granule vs single-granule
-        #      gqa operation.
-        #      Below demo's submit all granules as single granule gqa operation
-        #      (same as wagl)
-        for level1 in level1_list:
-            # work_root = pjoin(self.workdir, '{}.GQA'.format(basename(level1)))
-            container = acquisitions(level1, self.acq_parser_hint)
-            for granule in container.granules:
-            # TODO enable updating dataset in-place
-            # if update_source:
-            #     tasks.append(UpdateSource(level1, work_root))
-            # else:
-                tasks.append(GQATask(level1, granule, self.workdir))
-
-        return tasks
+            return list(tasks([level1.strip() for level1 in src]))
 
 
 if __name__ == '__main__':
