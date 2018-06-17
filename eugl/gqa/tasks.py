@@ -103,6 +103,8 @@ class GQATask(luigi.Task):
         return luigi.LocalTarget(output_yaml)
 
     def run(self):
+        raise ValueError("pre-meditated fail")
+
         temp_directory = pjoin(self.workdir, 'work')
         if not exists(temp_directory):
             os.makedirs(temp_directory)
@@ -238,6 +240,10 @@ def closest_match(folder, timestamp, band_id, sat_id):
                           "(?P<stuff>\\w+?_)(?P<band>\\w+)")
     pattern2 = re.compile("p(?P<path>[0-9]{3})r(?P<row>[0-9]{3})(?P<junk>_[A-Za-z, 0-9]{3})"
                           "(?P<date>[0-9]{8})_z(?P<zone>[0-9]{2})_(?P<band>[0-9]{2})")
+
+    # TODO remove this
+    _LOG.debug("%r", timestamp)
+    df.append({"filename": "dummy", "date": timestamp})
 
     for filename in filenames:
         match1 = pattern1.match(filename)
