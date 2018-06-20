@@ -23,6 +23,7 @@ import traceback
 import argparse
 from datetime import datetime
 from dateutil.tz import tzutc
+from collections import Counter, namedtuple
 
 import luigi
 import osr
@@ -39,6 +40,7 @@ from wagl.acquisition import acquisitions
 from wagl.singlefile_workflow import DataStandardisation
 from wagl.constants import BandType
 from wagl.geobox import GriddedGeoBox
+from eugl.fmask import run_command
 from eugl.gqa.geometric_utils import BAND_MAP, OLD_BAND_MAP
 from eugl.gqa.geometric_utils import SLC_OFF
 from eugl.gqa.geometric_utils import calculate_gqa
@@ -103,8 +105,6 @@ class GQATask(luigi.Task):
         return luigi.LocalTarget(output_yaml)
 
     def run(self):
-        raise ValueError("pre-meditated fail")
-
         temp_directory = pjoin(self.workdir, 'work')
         if not exists(temp_directory):
             os.makedirs(temp_directory)
@@ -128,12 +128,11 @@ class GQATask(luigi.Task):
             references = reference_imagery(landsat_scenes, timestamp, h5[location].attrs['band_id'],
                                            [self.reference_directory, self.backup_reference])
 
-            for ref in references:
-                _LOG.debug('reference: %r', ref)
+            _LOG.debug("GQA: granule %s", self.granule)
+            vrt_file = pjoin(temp_directory, 'reference.vrt')
+            build_vrt(references, vrt_file, temp_directory)
 
-            # TODO reproject, buildvrt, run gverify, parse results
-            # TODO if I want to reproject the reference images
-            # TODO then I have to make sure I take care of ls7 images
+            # TODO run gverify, parse results
 
         except ValueError as ve:
             # failed because GQA cannot be calculated
@@ -141,6 +140,8 @@ class GQATask(luigi.Task):
             with open(pjoin(temp_directory, 'gverify.log'), 'w') as src:
                 src.write('gverify was not executed because:')
                 src.write(str(ve))
+
+        raise ValueError("GQA: pre-meditated fail")
 
         self.output().makedirs()
         # TODO remove this ".dummy" bit when finished
@@ -155,6 +156,53 @@ class GQATask(luigi.Task):
             _cleanup_workspace(temp_directory)
 
 
+def most_common(sequence):
+    result, _ = Counter(sequence).most_common(1)[0]
+    return result
+
+
+class CSR(namedtuple('CSRBase', ['filename', 'crs', 'resolution'])):
+    """
+    Do two images have the same coordinate system and resolution?
+    """
+    @classmethod
+    def from_file(cls, filename):
+        with rasterio.open(filename) as fl:
+            return cls(filename, fl.crs, fl.res)
+
+    def __eq__(self, other):
+        if not isinstance(other, CSR):
+            return False
+        return self.crs == other.crs and self.resolution == other.resolution
+
+    def __hash__(self):
+        return hash((self.crs.data['init'], self.resolution))
+
+
+def build_vrt(reference_images, out_file, work_dir):
+    temp_directory = pjoin(work_dir, 'reprojected_references')
+    if not exists(temp_directory):
+        os.makedirs(temp_directory)
+
+    common_csr = most_common(reference_images)
+    _LOG.debug("GQA: chosen CRS {}".format(common_csr))
+
+    def reprojected_images():
+        for image in reference_images:
+            if image == common_csr:
+                yield image
+            else:
+                src_file = image.filename
+                ref_file = common_csr.filename
+                out_file = pjoin(temp_directory, basename(src_file))
+                reproject(src_file, ref_file, out_file)
+                yield CSR.from_file(out_file)
+
+    reprojected = [image.filename for image in reprojected_images()]
+    command = ['gdalbuildvrt', '-srcnodata', '0', '-vrtnodata', '0', out_file] + reprojected
+    run_command(command, work_dir)
+
+
 def acquisition_timestamp(h5_file, granule):
     result = h5_file[f'{granule}/ATMOSPHERIC-INPUTS'].attrs['acquisition-datetime']
     return parse_timestamp(result)
@@ -166,10 +214,8 @@ def is_land_tile(granule, ocean_tile_list):
     with open(ocean_tile_list) as fl:
         for line in fl:
             if tile_id == line.strip():
-                _LOG.debug('tile %s is an ocean tile', tile_id)
                 return False
 
-    _LOG.debug('tile %s is a land tile', tile_id)
     return True
 
 
@@ -215,13 +261,10 @@ def reference_imagery(path_rows, timestamp, band_id, reference_directories):
               for entry in australian
               for reference in find_references(entry, reference_directories)]
 
-    _LOG.debug('found references:')
-    _LOG.debug(str(result))
-
     if result == []:
         raise ValueError(f"No reference found for {path_rows}")
 
-    return result
+    return [CSR.from_file(image) for image in result]
 
 
 def closest_match(folder, timestamp, band_id, sat_id):
@@ -234,30 +277,24 @@ def closest_match(folder, timestamp, band_id, sat_id):
     if filenames == []:
         return []
 
-    df = pandas.DataFrame(columns=["filename", "date"])
+    df = pandas.DataFrame(columns=["filename", "diff"])
 
     pattern1 = re.compile("(?P<sat>[A-Z, 0-9]{3})(?P<pr>[0-9]{6})(?P<date>[0-9]{7})"
                           "(?P<stuff>\\w+?_)(?P<band>\\w+)")
     pattern2 = re.compile("p(?P<path>[0-9]{3})r(?P<row>[0-9]{3})(?P<junk>_[A-Za-z, 0-9]{3})"
                           "(?P<date>[0-9]{8})_z(?P<zone>[0-9]{2})_(?P<band>[0-9]{2})")
 
-    # TODO remove this
-    _LOG.debug("%r", timestamp)
-    df.append({"filename": "dummy", "date": timestamp})
-
     for filename in filenames:
         match1 = pattern1.match(filename)
         match2 = pattern2.match(filename)
 
         if match1 is not None:
-            _LOG.debug('match: %s', str(match1.groupdict()))
             if match1.group('band') != BAND_MAP[match1.group('sat')][sat_id][band_id]:
                 continue
 
             date = datetime.strptime(match1.group('date'), '%Y%j')
 
         elif match2 is not None:
-            _LOG.debug('match: %s', str(match2.groupdict()))
             if match2.group('band') != OLD_BAND_MAP[sat_id][band_id]:
                 continue
 
@@ -266,12 +303,10 @@ def closest_match(folder, timestamp, band_id, sat_id):
         else:
             continue
 
-        df = df.append({"filename": filename, "date": date}, ignore_index=True)
+        diff = abs(date.replace(tzinfo=tzutc()) - timestamp).total_seconds()
+        df = df.append({"filename": filename, "diff": diff}, ignore_index=True)
 
-    _LOG.debug('date: %r', date)
-    _LOG.debug('timestamp: %r', timestamp)
-
-    closest = df.loc[(df['date'].replace(tzinfo=tzutc()) - timestamp).abs().argmin()]
+    closest = df.loc[df['diff'].argmin()]
     return [pjoin(folder, closest['filename'])]
 
 
