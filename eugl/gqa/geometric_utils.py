@@ -51,7 +51,7 @@ def _write_gqa_yaml(out_fname, data):
     with open(out_fname, 'w') as f:
         yaml.safe_dump(data, f, default_flow_style=False, indent=4)
 
-def _write_failure_yaml(out_fname, scene_id, msg, ref_source=None,
+def _write_failure_yaml(out_fname, granule, msg, ref_source=None,
                         ref_source_path=None, ref_date=None):
     """
     We'll cater for future tasks by passing through reference image details,
@@ -64,7 +64,7 @@ def _write_failure_yaml(out_fname, scene_id, msg, ref_source=None,
     data['software_version'] = get_version()
     data['software_repository'] = repo_path
     data['error_message'] = msg
-    data['scene_id'] = scene_id
+    data['granule'] = granule
     data['ref_source'] = ref_source
     data['ref_source_path'] = ref_source_path
     data['ref_date'] = ref_date
