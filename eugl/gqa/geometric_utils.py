@@ -13,7 +13,7 @@ import yaml
 import pandas
 import rasterio
 from rasterio.warp import Resampling
-from gqa.version import get_version
+from eugl.version import get_version
 
 
 def _rounded(d):
@@ -51,7 +51,7 @@ def _write_gqa_yaml(out_fname, data):
     with open(out_fname, 'w') as f:
         yaml.safe_dump(data, f, default_flow_style=False, indent=4)
 
-def _write_failure_yaml(out_fname, scene_id, msg, ref_source=None,
+def _write_failure_yaml(out_fname, granule, msg, ref_source=None,
                         ref_source_path=None, ref_date=None):
     """
     We'll cater for future tasks by passing through reference image details,
@@ -64,7 +64,7 @@ def _write_failure_yaml(out_fname, scene_id, msg, ref_source=None,
     data['software_version'] = get_version()
     data['software_repository'] = repo_path
     data['error_message'] = msg
-    data['scene_id'] = scene_id
+    data['granule'] = granule
     data['ref_source'] = ref_source
     data['ref_source_path'] = ref_source_path
     data['ref_date'] = ref_date
@@ -105,7 +105,18 @@ BAND_MAP = {'LE7': {'ls5': {'1': 'B1',
                             '6': 'B5',
                             '7': 'B7',
                             '10': 'B6_VCID_1',
-                            '11': 'B6_VCID_1'}},
+                            '11': 'B6_VCID_1'},
+                    's2':  {'1': 'B1',
+                            '2': 'B1',
+                            '3': 'B2',
+                            '4': 'B3',
+                            '5': 'B3',
+                            '6': 'B3',
+                            '7': 'B3',
+                            '8': 'B4',
+                            '8A': 'B4',
+                            '11': 'B5',
+                            '12': 'B7'}},
             'LT5': {'ls5': {'1': 'B1',
                             '2': 'B2',
                             '3': 'B3',
@@ -129,7 +140,18 @@ BAND_MAP = {'LE7': {'ls5': {'1': 'B1',
                             '6': 'B5',
                             '7': 'B7',
                             '10': 'B6_VCID_1',
-                            '11': 'B6_VCID_1'}},
+                            '11': 'B6_VCID_1'},
+                    's2':  {'1': 'B1',
+                            '2': 'B1',
+                            '3': 'B2',
+                            '4': 'B3',
+                            '5': 'B3',
+                            '6': 'B3',
+                            '7': 'B3',
+                            '8': 'B4',
+                            '8A': 'B4',
+                            '11': 'B5',
+                            '12': 'B7'}},
             'LC8': {'ls5': {'1': 'B2',
                             '2': 'B3',
                             '3': 'B4',
@@ -153,7 +175,18 @@ BAND_MAP = {'LE7': {'ls5': {'1': 'B1',
                             '6': 'B6',
                             '7': 'B7',
                             '10': 'B10',
-                            '11': 'B11'}},
+                            '11': 'B11'},
+                    's2':  {'1': 'B1',
+                            '2': 'B2',
+                            '3': 'B3',
+                            '4': 'B4',
+                            '5': 'B4',
+                            '6': 'B4',
+                            '7': 'B4',
+                            '8': 'B5',
+                            '8A': 'B5',
+                            '11': 'B6',
+                            '12': 'B7'}},
             'LO8': {'ls5': {'1': 'B2',
                             '2': 'B3',
                             '3': 'B4',
@@ -177,7 +210,18 @@ BAND_MAP = {'LE7': {'ls5': {'1': 'B1',
                             '6': 'B6',
                             '7': 'B7',
                             '10': 'B10',
-                            '11': 'B11'}}}
+                            '11': 'B11'},
+                    's2':  {'1': 'B1',
+                            '2': 'B2',
+                            '3': 'B3',
+                            '4': 'B4',
+                            '5': 'B4',
+                            '6': 'B4',
+                            '7': 'B4',
+                            '8': 'B5',
+                            '8A': 'B5',
+                            '11': 'B6',
+                            '12': 'B7'}}}
 
 
 OLD_BAND_MAP = {'ls5': {'1': '10',
@@ -203,7 +247,18 @@ OLD_BAND_MAP = {'ls5': {'1': '10',
                         '6': '50',
                         '7': '70',
                         '10': '61',
-                        '11': '61'}}
+                        '11': '61'},
+                's2':  {'1': '10',
+                        '2': '10',
+                        '3': '20',
+                        '4': '30',
+                        '5': '30',
+                        '6': '30',
+                        '7': '30',
+                        '8': '40',
+                        '8A': '40',
+                        '11': '50',
+                        '12': '70'}}
 
 
 def call_gverify(source_image, reference_image, out_path, pyramid_levels=5,
@@ -236,6 +291,8 @@ def call_gverify(source_image, reference_image, out_path, pyramid_levels=5,
 
     # TODO; pass through gverify lib path, gdal_data path, geotiff_csv path
     GVERIFY_LIB_PATH = ''
+
+    # TODO: GDAL_DATA and GEOTIFF_CSV values
 
     # We call bash explicitly because we're using bash syntax ("shell=True" could be anything)
     wrapped_cmd = (
