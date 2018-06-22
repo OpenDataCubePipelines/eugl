@@ -22,8 +22,7 @@ from pkg_resources import resource_filename
 import shutil
 import traceback
 import argparse
-from datetime import datetime
-from dateutil.tz import tzutc
+from datetime import datetime, timezone
 from collections import Counter, namedtuple
 from subprocess import CalledProcessError
 
@@ -72,16 +71,13 @@ _LOG = logging.getLogger(__name__)
 # Similar to how wagl and tesp do it
 CONFIG = luigi.configuration.get_config()
 
-# TODO purge this
-# CONFIG.add_config_path(resource_filename('gqa', 'gqa-defaults.luigi.cfg'))
-
 # TODO variable change; scene id is landsat specific, level1 is more generic
 # TODO remove refs to l1t (landsat specific)
 
 
 class GQATask(luigi.Task):
     """
-    WIP: GQA for Sentinel-2.
+    Calculate GQA for a single (Sentinel-2) granule.
     TODO: Landsat compatibility.
     TODO: Modularity.
     """
@@ -186,9 +182,8 @@ class GQATask(luigi.Task):
         self.output().makedirs()
         shutil.copy(temp_yaml, self.output().path)
 
-        for temp_log in glob.glob(pjoin(temp_directory, '*gverify.log')):
-            shutil.copy(temp_log, pjoin(self.workdir, basename(temp_log)))
-            break
+        temp_log = glob.glob(pjoin(temp_directory, '*gverify.log'))[0]
+        shutil.copy(temp_log, pjoin(self.workdir, basename(temp_log)))
 
         if int(self.cleanup):
             _cleanup_workspace(temp_directory)
@@ -298,8 +293,6 @@ def calculate_gqa(task, df, tr, resolution):
 
         # Re-calculate the mean and standard deviation for both X & Y residuals
         current = calculate_stats(subset)
-
-        # Calculate abs mean value for both X & Y residuals
 
     # Calculate the Circular Error Probable 90 (CEP90)
     # Formulae taken from:
@@ -508,7 +501,7 @@ def closest_match(folder, timestamp, band_id, sat_id):
         if date is None:
             continue
 
-        diff = abs(date.replace(tzinfo=tzutc()) - timestamp).total_seconds()
+        diff = abs(date.replace(tzinfo=timezone.utc) - timestamp).total_seconds()
         df = df.append({"filename": filename, "diff": diff}, ignore_index=True)
 
     closest = df.loc[df['diff'].argmin()]
