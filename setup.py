@@ -15,7 +15,7 @@ setup(name='eugl',
           'python-fmask'
       ],
       dependency_links=[
-          'hg+https://bitbucket.org/chchrsc/rios@1.4.4/#egg=rios-1.4.4',
-          'hg+https://bitbucket.org/chchrsc/python-fmask@0.4.5#egg=python-fmask-0.4.5'
+          'hg+https://bitbucket.org/chchrsc/rios/get/rios-1.4.5.zip#egg=rios-1.4.5',
+          'hg+https://bitbucket.org/chchrsc/python-fmask/get/python-fmask-0.4.5.zip#egg=python-fmask-0.4.5'
       ]
       )
