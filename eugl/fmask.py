@@ -122,7 +122,7 @@ def _sentinel2_fmask(dataset_path, container, granule, out_fname, work_dir):
     for band_id in required_ids:
         acq = acqs[band_ids.index(band_id)]
         if ".zip" in acq.uri:
-            cmd.append(acq.uri.replace('zip:', '/vsizip/').replace('!', "/"))
+            cmd.append(acq.uri.replace('zip:', '/vsizip/').replace('!', ''))
         else:
             cmd.append(acq.uri)
 
