@@ -39,6 +39,14 @@ def _fmask_landsat(acquisition, out_fname, work_dir):
     """
     Fmask algorithm for Landsat.
     """
+    acquisition_path = acqusition.pathname
+    if ".tar" in acquisition_path:
+        tmp_dir = pjoin(work_dir, 'fmask_imagery')
+        cmd = ['tar', 'zxvf', acquisition_path]
+        run_command(cmd, tmp_dir)
+        
+        acquisition_path = tmp_dir
+
     # wild cards for the reflective bands
     reflective_wcards = {'LANDSAT_5': 'L*_B[1,2,3,4,5,7].TIF',
                          'LANDSAT_7': 'L*_B[1,2,3,4,5,7].TIF',
@@ -59,15 +67,15 @@ def _fmask_landsat(acquisition, out_fname, work_dir):
     # reflective image stack
     cmd = ['gdal_merge.py', '-separate', '-of', 'HFA', '-co', 'COMPRESSED=YES',
            '-o', ref_fname, reflective_wcards[acquisition.platform_id]]
-    run_command(cmd, dirname(acquisition.uri))
+    run_command(cmd, acquisition_path)
 
     # thermal band(s)
     cmd = ['gdal_merge.py', '-separate', '-of', 'HFA', '-co', 'COMPRESSED=YES',
            '-o', thm_fname, thermal_wcards[acquisition.platform_id]]
-    run_command(cmd, dirname(acquisition.uri))
+    run_command(cmd, acquisition_path)
 
     # copy the mtl to the work space
-    mtl_fname = str(list(Path(acquisition.uri).parent.glob('*_MTL.txt'))[0])
+    mtl_fname = str(list(Path(acquisition_path).glob('*_MTL.txt'))[0])
 
     # angles
     cmd = ['fmask_usgsLandsatMakeAnglesImage.py', '-m', mtl_fname,
