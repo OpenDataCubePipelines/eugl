@@ -39,7 +39,7 @@ def _fmask_landsat(acquisition, out_fname, work_dir):
     """
     Fmask algorithm for Landsat.
     """
-    acquisition_path = acqusition.pathname
+    acquisition_path = acquisition.pathname
     if ".tar" in acquisition_path:
         tmp_dir = pjoin(work_dir, 'fmask_imagery')
         cmd = ['tar', 'zxvf', acquisition_path]
