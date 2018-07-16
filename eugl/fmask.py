@@ -42,6 +42,8 @@ def _fmask_landsat(acquisition, out_fname, work_dir):
     acquisition_path = acquisition.pathname
     if ".tar" in acquisition_path:
         tmp_dir = pjoin(work_dir, 'fmask_imagery')
+        if not os.path.isdir(tmp_dir):
+            os.mkdir(tmp_dir)
         cmd = ['tar', 'zxvf', acquisition_path]
         run_command(cmd, tmp_dir)
         
