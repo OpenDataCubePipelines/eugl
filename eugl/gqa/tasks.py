@@ -217,7 +217,8 @@ def parse_gqa(task, output_yaml, reference_images, band_id, sat_id, work_dir):
                   software_repository=repo_path,
                   granule=granule,
                   ref_source=_gls_version(first_ref),
-                  ref_date=ref_date)
+                  ref_date=ref_date,
+                  gverify_version=task.gverify_binary.split('_')[-1])
 
     rh = pandas.read_csv(result_file, sep=r'\s*', skiprows=6,
                          names=['Color', 'Residual'], header=None, nrows=5,
