@@ -32,13 +32,23 @@ def run_command(command, work_dir):
     """
     A simple utility to execute a subprocess command.
     """
-    check_call(' '.join(command), shell=True, cwd=work_dir)
+    check_call(' '.join(command), shell=True, cwd=str(work_dir))
 
 
 def _fmask_landsat(acquisition, out_fname, work_dir):
     """
     Fmask algorithm for Landsat.
     """
+    acquisition_path = Path(acquisition.pathname)
+    if ".tar" in str(acquisition_path):
+        tmp_dir = Path(work_dir) / 'fmask_imagery'
+        if not tmp_dir.is_dir():
+            tmp_dir.mkdir()
+        cmd = ['tar', 'zxvf', str(acquisition_path)]
+        run_command(cmd, tmp_dir)
+        
+        acquisition_path = tmp_dir
+
     # wild cards for the reflective bands
     reflective_wcards = {'LANDSAT_5': 'L*_B[1,2,3,4,5,7].TIF',
                          'LANDSAT_7': 'L*_B[1,2,3,4,5,7].TIF',
@@ -56,18 +66,24 @@ def _fmask_landsat(acquisition, out_fname, work_dir):
     mask_fname = pjoin(work_dir, 'saturation-mask.img')
     toa_fname = pjoin(work_dir, 'toa-reflectance.img')
 
+    reflective_bands = [str(path) for path in acquisition_path.rglob(
+                        reflective_wcards[acquisition.platform_id])]
+    
+    thermal_bands = [str(path) for path in acquisition_path.rglob(
+                     thermal_wcards[acquisition.platform_id])]
+
     # reflective image stack
     cmd = ['gdal_merge.py', '-separate', '-of', 'HFA', '-co', 'COMPRESSED=YES',
-           '-o', ref_fname, reflective_wcards[acquisition.platform_id]]
-    run_command(cmd, dirname(acquisition.uri))
+           '-o', ref_fname, *reflective_bands]
+    run_command(cmd, acquisition_path)
 
     # thermal band(s)
     cmd = ['gdal_merge.py', '-separate', '-of', 'HFA', '-co', 'COMPRESSED=YES',
-           '-o', thm_fname, thermal_wcards[acquisition.platform_id]]
-    run_command(cmd, dirname(acquisition.uri))
+           '-o', thm_fname, *thermal_bands]
+    run_command(cmd, acquisition_path)
 
     # copy the mtl to the work space
-    mtl_fname = str(list(Path(acquisition.uri).parent.glob('*_MTL.txt'))[0])
+    mtl_fname = str(list(acquisition_path.rglob('*_MTL.txt'))[0])
 
     # angles
     cmd = ['fmask_usgsLandsatMakeAnglesImage.py', '-m', mtl_fname,
