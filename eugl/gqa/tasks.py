@@ -38,7 +38,7 @@ import h5py
 from dateutil.parser import parse as parse_timestamp
 
 from wagl.data import write_img
-from wagl.constants import ATMOSPHERIC_INPUTS_GRP
+from wagl.constants import GroupName
 from wagl.acquisition import acquisitions
 from wagl.singlefile_workflow import DataStandardisation
 from wagl.constants import BandType
@@ -404,7 +404,7 @@ def build_vrt(reference_images, out_file, work_dir):
 
 
 def acquisition_timestamp(h5_file, granule):
-    result = h5_file[f'{granule}/{ATMOSPHERIC_INPUTS_GRP}'].attrs['acquisition-datetime']
+    result = h5_file[f'{granule}/{GroupName.ATMOSPHERIC_INPUTS_GRP.value}'].attrs['acquisition-datetime']
     return parse_timestamp(result)
 
 
