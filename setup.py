@@ -1,12 +1,13 @@
 #!/usr/bin/env python
 
-from setuptools import setup
+from setuptools import setup, find_packages
 
 setup(name='eugl',
       version='0.0.2',
       description='Modules that deal with sensor and data quality characterisation.',
-      packages=['eugl'],
+      packages=find_packages(),
       install_requires=[
+          'eodatasets',
           'click',
           'click_datetime',
           'numpy',
