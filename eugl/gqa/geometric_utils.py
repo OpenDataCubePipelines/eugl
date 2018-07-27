@@ -1,5 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+#
+# Functions in this file represent work to be refactored.
+
 from __future__ import print_function
 import datetime
 import logging
