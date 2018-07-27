@@ -31,10 +31,17 @@ os.environ["CPL_ZIP_ENCODING"] = "UTF-8"
 # potentially use the module and pass in the require vars rather
 # than a command line call.
 
+class CommandError(RuntimeError):
+    """
+    Custom class to capture subprocess call errors
+    """
+    pass
+
 
 def run_command(command, work_dir):
     """
     A simple utility to execute a subprocess command.
+    Raises a CalledProcessError for backwards compatibility
     """
     _proc = subprocess.Popen(
         ' '.join(command),
@@ -45,11 +52,11 @@ def run_command(command, work_dir):
     )
     _proc.wait()
 
-    stderr, stdout = _proc.communicate()
+    stdout, stderr = _proc.communicate()
     if _proc.returncode != 0:
         _LOG.error(stderr.decode('utf-8'))
         _LOG.info(stdout.decode('utf-8'))
-        raise subprocess.CalledProcessError('"%s" failed with return code: %s' % (command, str(_proc.returncode)))
+        raise CommandError('"%s" failed with return code: %s' % (command, str(_proc.returncode)))
     else:
         _LOG.debug(stdout.decode('utf-8'))
 
