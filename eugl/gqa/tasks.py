@@ -44,7 +44,7 @@ from wagl.singlefile_workflow import DataStandardisation
 from wagl.constants import BandType
 from wagl.geobox import GriddedGeoBox
 from eugl.version import get_version
-from eugl.fmask import run_command
+from eugl.fmask import run_command, CommandError
 from eugl.gqa.geometric_utils import BAND_MAP, OLD_BAND_MAP
 from eugl.gqa.geometric_utils import SLC_OFF
 from eugl.gqa.geometric_utils import get_reference_data
@@ -173,7 +173,7 @@ class GQATask(luigi.Task):
             _LOG.debug('finished gverify on %s', self.granule)
             parse_gqa(self, temp_yaml, references, band_id, sat_id, temp_directory)
 
-        except (ValueError, FileNotFoundError, CalledProcessError) as ve:
+        except (ValueError, FileNotFoundError, CommandError) as ve:
             # failed because GQA cannot be calculated
             _write_failure_yaml(temp_yaml, self.granule, str(ve))
             with open(pjoin(temp_directory, 'gverify.log'), 'w') as src:

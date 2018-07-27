@@ -8,12 +8,16 @@ by datacube.
 from __future__ import absolute_import
 import os
 from os.path import join as pjoin, abspath, basename, dirname, exists
-from subprocess import check_call
+import subprocess
 import tempfile
+import logging
+
 from pathlib import Path
 import click
 
 from wagl.acquisition import acquisitions
+
+_LOG = logging.getLogger(__name__)
 
 os.environ["CPL_ZIP_ENCODING"] = "UTF-8"
 
@@ -27,12 +31,35 @@ os.environ["CPL_ZIP_ENCODING"] = "UTF-8"
 # potentially use the module and pass in the require vars rather
 # than a command line call.
 
+class CommandError(RuntimeError):
+    """
+    Custom class to capture subprocess call errors
+    """
+    pass
+
 
 def run_command(command, work_dir):
     """
     A simple utility to execute a subprocess command.
+    Raises a CalledProcessError for backwards compatibility
     """
-    check_call(' '.join(command), shell=True, cwd=str(work_dir))
+    _proc = subprocess.Popen(
+        ' '.join(command),
+        stderr=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        shell=True,
+        cwd=str(work_dir)
+    )
+    _proc.wait()
+
+    stdout, stderr = _proc.communicate()
+    if _proc.returncode != 0:
+        _LOG.error(stderr.decode('utf-8'))
+        _LOG.info(stdout.decode('utf-8'))
+        raise CommandError('"%s" failed with return code: %s' % (command, str(_proc.returncode)))
+    else:
+        _LOG.debug(stdout.decode('utf-8'))
+
 
 
 def _fmask_landsat(acquisition, out_fname, work_dir):
@@ -46,7 +73,7 @@ def _fmask_landsat(acquisition, out_fname, work_dir):
             tmp_dir.mkdir()
         cmd = ['tar', 'zxvf', str(acquisition_path)]
         run_command(cmd, tmp_dir)
-        
+
         acquisition_path = tmp_dir
 
     # wild cards for the reflective bands
@@ -68,7 +95,7 @@ def _fmask_landsat(acquisition, out_fname, work_dir):
 
     reflective_bands = [str(path) for path in acquisition_path.rglob(
                         reflective_wcards[acquisition.platform_id])]
-    
+
     thermal_bands = [str(path) for path in acquisition_path.rglob(
                      thermal_wcards[acquisition.platform_id])]
 
