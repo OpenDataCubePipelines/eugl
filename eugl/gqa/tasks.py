@@ -174,8 +174,9 @@ class GQATask(luigi.Task):
             parse_gqa(self, temp_yaml, references, band_id, sat_id, temp_directory)
 
         except (ValueError, FileNotFoundError, CommandError) as ve:
-            # failed because GQA cannot be calculated
-            _write_failure_yaml(temp_yaml, self.granule, str(ve))
+            _LOG.debug('failed because GQA cannot be calculated: %s', str(ve))
+            _write_failure_yaml(temp_yaml, self.granule, str(ve),
+                                gverify_version=self.gverify_binary.split('_')[-1])
             with open(pjoin(temp_directory, 'gverify.log'), 'w') as src:
                 src.write('gverify was not executed because:\n')
                 src.write(str(ve))
