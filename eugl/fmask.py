@@ -38,7 +38,7 @@ class CommandError(RuntimeError):
     pass
 
 
-def run_command(command, work_dir):
+def run_command(command, work_dir, timeout=None):
     """
     A simple utility to execute a subprocess command.
     Raises a CalledProcessError for backwards compatibility
@@ -50,13 +50,24 @@ def run_command(command, work_dir):
         shell=True,
         cwd=str(work_dir)
     )
-    _proc.wait()
+
+    timed_out = False
+
+    try:
+        _proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _proc.kill()
+        timed_out = True
 
     stdout, stderr = _proc.communicate()
     if _proc.returncode != 0:
         _LOG.error(stderr.decode('utf-8'))
         _LOG.info(stdout.decode('utf-8'))
-        raise CommandError('"%s" failed with return code: %s' % (command, str(_proc.returncode)))
+
+        if timed_out:
+            raise CommandError('"%s" timed out' % (command))
+        else:
+            raise CommandError('"%s" failed with return code: %s' % (command, str(_proc.returncode)))
     else:
         _LOG.debug(stdout.decode('utf-8'))
 

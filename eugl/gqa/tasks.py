@@ -110,6 +110,7 @@ class GQATask(luigi.Task):
     gverify_root_fix_qa_location = luigi.Parameter()
     gverify_iterations = luigi.Parameter()
     gverify_standard_deviations = luigi.Parameter()
+    gverify_timeout = luigi.Parameter()
 
     def requires(self):
         return [DataStandardisation(self.level1, self.workdir, self.granule)]
@@ -159,7 +160,7 @@ class GQATask(luigi.Task):
                 extra = ['-g', self.gverify_grid_size]
                 cmd = gverify_cmd(self, vrt_file, source_band, temp_directory, extra=extra)
                 _LOG.debug('calling gverify %s', ' '.join(cmd))
-                run_command(cmd, temp_directory)
+                run_command(cmd, temp_directory, timeout=int(self.gverify_timeout))
             else:
                 # create a set of fix-points from landsat path-row
                 points_txt = pjoin(temp_directory, 'points.txt')
@@ -168,7 +169,7 @@ class GQATask(luigi.Task):
                 extra = ['-t', 'FIXED_LOCATION', '-t_file', points_txt]
                 cmd = gverify_cmd(self, vrt_file, source_band, temp_directory, extra=extra)
                 _LOG.debug('calling gverify %s', ' '.join(cmd))
-                run_command(cmd, temp_directory)
+                run_command(cmd, temp_directory, timeout=int(self.gverify_timeout))
 
             _LOG.debug('finished gverify on %s', self.granule)
             parse_gqa(self, temp_yaml, references, band_id, sat_id, temp_directory)
