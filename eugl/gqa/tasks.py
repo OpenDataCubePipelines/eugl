@@ -56,7 +56,7 @@ from eugl.gqa.geometric_utils import BAND_MAP, OLD_BAND_MAP, SLC_OFF
 from eugl.gqa.geometric_utils import SLC_OFF
 from eugl.gqa.geometric_utils import get_reference_data, reproject
 from eugl.gqa.geometric_utils import (
-    _write_failure_yaml, _write_gqa_yaml, _populate_nan_residuals
+    _write_failure_yaml, _write_gqa_yaml, _populate_nan_residuals,
     _gls_version, _clean_name, _rounded
 )
 
