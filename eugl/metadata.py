@@ -4,6 +4,9 @@ from eugl.version import __version__, REPO_URL
 
 FMASK_REPO_URL = 'https://bitbucket.org/chchrsc/python-fmask'
 
+# TODO: Fix update to merge the dictionaries
+
+
 def _get_eugl_metadata():
     return {
         'software_versions': {
@@ -17,15 +20,10 @@ def _get_eugl_metadata():
 
 def get_fmask_metadata():
     base_info = _get_eugl_metadata()
-
-    base_info.update({
-        'software_versions': {
-            'fmask': {
-                'version': fmask.__version__,
-                'repo_url': FMASK_REPO_URL
-            }
-        }
-    )
+    base_info['software_versions']['fmask'] = {
+        'version': fmask.__version__,
+        'repo_url': FMASK_REPO_URL
+    }
 
     return base_info
 
@@ -39,19 +37,9 @@ def get_gqa_metadata(gverify_executable):
 
     gverify_version = gverify_executable.split('_')[-1]
     base_info = _get_eugl_metadata()
-
-    base_info.update({
-        'software_versions': {
-            'gverify': {
-                'version': gverify_version
-            }
-        },
-        'gqa': {
-            'granule': ,
-            'ref_source': ,
-            'ref_date': ,
-        }
-    })
+    base_info['software_versions']['gverify'] = {
+        'version': gverify_version
+    }
 
     return base_info
 

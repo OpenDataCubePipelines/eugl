@@ -31,6 +31,7 @@ os.environ["CPL_ZIP_ENCODING"] = "UTF-8"
 # potentially use the module and pass in the require vars rather
 # than a command line call.
 
+
 class CommandError(RuntimeError):
     """
     Custom class to capture subprocess call errors
@@ -70,7 +71,6 @@ def run_command(command, work_dir, timeout=None):
             raise CommandError('"%s" failed with return code: %s' % (command, str(_proc.returncode)))
     else:
         _LOG.debug(stdout.decode('utf-8'))
-
 
 
 def _fmask_landsat(acquisition, out_fname, work_dir):

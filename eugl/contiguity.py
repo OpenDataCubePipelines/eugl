@@ -18,6 +18,7 @@ from wagl.geobox import GriddedGeoBox
 
 os.environ["CPL_ZIP_ENCODING"] = "UTF-8"
 
+
 def contiguity(fname, output):
     """
     Write a contiguity mask file based on the intersection of valid data pixels across all
@@ -39,13 +40,13 @@ def contiguity(fname, output):
 
     return None
 
+
 @click.command(help=__doc__)
 @click.option('--output', help="Write contiguity datasets into this directory",
               type=click.Path(exists=False, writable=True, dir_okay=True))
 @click.argument('datasets',
                 type=click.Path(exists=True, readable=True, writable=False),
                 nargs=-1)
-
 def main(output, datasets):
     """
     For input 'vrt' generate Contiguity
@@ -59,6 +60,3 @@ def main(output, datasets):
         contiguity = out+".CONTIGUITY.TIF"
         logging.info("Create contiguity image " + contiguity)
         contiguity(path, contiguity)
-
-if __name__ == "__main__":
-    main()
