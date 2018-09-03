@@ -50,7 +50,7 @@ def _gls_version(ref_fname):
     return gls_version
 
 def _write_gqa_yaml(out_fname, data):
-    _LOG.info('Writing result yaml: %s', out_fname)
+    _LOG.debug('Writing result yaml: %s', out_fname)
     with open(out_fname, 'w') as f:
         yaml.safe_dump(data, f, default_flow_style=False, indent=4)
 
