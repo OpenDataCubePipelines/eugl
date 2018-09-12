@@ -14,34 +14,36 @@ from wagl.acquisition.landsat import (
 from wagl.constants import GroupName, DatasetName
 
 
-def get_landocean_bands(container, product='NBAR'):
+def get_land_ocean_bands(container, granule_id=None, product='NBAR'):
     """get_landocean_bands: Returns the h5py keys for the land/ocean bands
 
     :param container: container for the imagery
     :param product: which product to reference
     """
 
+    acq = container.get_all_acquisitions()[0]
+    ds_fmt = DatasetName.REFLECTANCE_FMT.value
+
+    if not granule_id and len(container.granules) == 1:
+        granule_id = container.granules[0]
+
     # TODO Need a better way to resolve resolution group for output bands
-    if isinstance(container, Sentinel2Acquisition):
+    if issubclass(acq.__class__, Sentinel2Acquisition):
         return {
             'land_band': (
-                f"RES-GROUP-1/{GroupName.STANDARD_GROUP}/"
-                "{DatasetName.REFLECTANCE_FMT}".format(
-                    product=product, band_name='BAND-11'
-                )
+                "{}/RES-GROUP-1/{}/".format(granule_id, GroupName.STANDARD_GROUP.value) +
+                ds_fmt.format(product=product, band_name='BAND-11')
             ),
-            'sea_band': (
-                f"RES-GROUP-0/{GroupName.STANDARD_GROUP}/"
-                f"{DatasetName.REFLECTANCE_FMT}".format(
-                    product=product, band_name='BAND-2'
-                )
+            'ocean_band': (
+                "{}/RES-GROUP-1/{}/".format(granule_id, GroupName.STANDARD_GROUP.value) +
+                ds_fmt.format(product=product, band_name='BAND-2')
             ),
         }
-    elif isinstance(container, Landsat5Acquisition):
+    elif issubclass(acq.__class__, Landsat5Acquisition):
         raise NotImplementedError
-    elif isinstance(container, Landsat7Acquisition):
+    elif issubclass(acq.__class__, Landsat7Acquisition):
         raise NotImplementedError
-    elif isinstance(container, Landsat8Acquisition):
+    elif issubclass(acq.__class__, Landsat8Acquisition):
         raise NotImplementedError
 
     raise RuntimeError("Unknown acquisition type")
