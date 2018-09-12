@@ -16,6 +16,7 @@ from pathlib import Path
 import click
 
 from wagl.acquisition import acquisitions
+from wagl.constants import BandType
 
 _LOG = logging.getLogger(__name__)
 
@@ -87,15 +88,11 @@ def _fmask_landsat(acquisition, out_fname, work_dir):
 
         acquisition_path = tmp_dir
 
-    # wild cards for the reflective bands
-    reflective_wcards = {'LANDSAT_5': 'L*_B[1,2,3,4,5,7].TIF',
-                         'LANDSAT_7': 'L*_B[1,2,3,4,5,7].TIF',
-                         'LANDSAT_8': 'L*_B[1-7,9].TIF'}
 
-    # wild cards for the thermal bands
-    thermal_wcards = {'LANDSAT_5': 'L*_B6.TIF',
-                      'LANDSAT_7': 'L*_B6_VCID_?.TIF',
-                      'LANDSAT_8': 'L*_B1[0,1].TIF'}
+    acqs = sorted(
+        acquisitions(acquisition_path).get_all_acquisitions(),
+        key=lambda a: a.band_id
+    )
 
     # internal output filenames
     ref_fname = pjoin(work_dir, 'reflective.img')
@@ -104,24 +101,15 @@ def _fmask_landsat(acquisition, out_fname, work_dir):
     mask_fname = pjoin(work_dir, 'saturation-mask.img')
     toa_fname = pjoin(work_dir, 'toa-reflectance.img')
 
-    reflective_bands = [str(path) for path in acquisition_path.rglob(
-                        reflective_wcards[acquisition.platform_id])]
-
-    thermal_bands = [str(path) for path in acquisition_path.rglob(
-                     thermal_wcards[acquisition.platform_id])]
-
-    # reflective image stack
-    cmd = ['gdal_merge.py', '-separate', '-of', 'HFA', '-co', 'COMPRESSED=YES',
-           '-o', ref_fname, *reflective_bands]
-    run_command(cmd, acquisition_path)
-
-    # thermal band(s)
-    cmd = ['gdal_merge.py', '-separate', '-of', 'HFA', '-co', 'COMPRESSED=YES',
-           '-o', thm_fname, *thermal_bands]
-    run_command(cmd, acquisition_path)
+    reflective_bands = [acq.uri for acq in acqs if acq.band_type is BandType.REFLECTIVE]
+    thermal_bands = [acq.uri for acq in acqs if acq.band_type is BandType.THERMAL]
 
     # copy the mtl to the work space
     mtl_fname = str(list(acquisition_path.rglob('*_MTL.txt'))[0])
+
+    cmd = ['gdal_merge.py', '-separate', '-of', 'HFA', '-co', 'COMPRESSED=YES',
+           '-o', ref_fname, *reflective_bands]
+    run_command(cmd, acquisition_path)
 
     # angles
     cmd = ['fmask_usgsLandsatMakeAnglesImage.py', '-m', mtl_fname,
@@ -138,7 +126,11 @@ def _fmask_landsat(acquisition, out_fname, work_dir):
            '-z', angles_fname, '-o', toa_fname]
     run_command(cmd, work_dir)
 
-    # fmask
+
+    cmd = ['gdal_merge.py', '-separate', '-of', 'HFA', '-co', 'COMPRESSED=YES',
+           '-o', thm_fname, *thermal_bands]
+    run_command(cmd, acquisition_path)
+
     cmd = ['fmask_usgsLandsatStacked.py', '-t', thm_fname, '-a', toa_fname,
            '-m', mtl_fname, '-z', angles_fname, '-s', mask_fname,
            '-o', out_fname]
