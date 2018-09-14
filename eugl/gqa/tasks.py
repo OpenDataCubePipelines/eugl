@@ -206,7 +206,7 @@ class GverifyTask(luigi.Task):
             run_args = {
                 'executable': self.executable,
                 'ref_resolution': reference_resolution,
-                'ref_date': (ref_date.replace(tzinfo=timezone.utc).isoformat() if ref_date else ''),
+                'ref_date': (ref_date.isoformat() if ref_date else ''),
                 'ref_source_path': str(ref_source_path),
                 'granule': str(self.granule),
                 'error_msg': str(error_msg)
@@ -575,7 +575,10 @@ def get_reference_date(filename, band_id, sat_id):
 
     # Primary reference set use Julian date
     if matches and matches.group('band') == BAND_MAP[matches.group('sat')][sat_id][band_id]:
-        return datetime.strptime(matches.group('year_doy'), '%Y%j')
+        return (
+            datetime.strptime(matches.group('year_doy'), '%Y%j')
+            .replace(tzinfo=timezone.utc)
+        )
 
     # Back up set use YYYY-MM-DD format
     matches = re.match(
@@ -616,7 +619,7 @@ def closest_match(folder, timestamp, band_id, sat_id):
         if date is None:
             continue
 
-        diff = abs(date.replace(tzinfo=timezone.utc) - timestamp).total_seconds()
+        diff = abs(date - timestamp).total_seconds()
 
         df = df.append({"filename": filename, "diff": diff}, ignore_index=True)
 
