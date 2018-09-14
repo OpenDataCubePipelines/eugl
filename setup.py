@@ -2,8 +2,10 @@
 
 from setuptools import setup, find_packages
 
+import versioneer
+
 setup(name='eugl',
-      version='0.0.3',
+      version=versioneer.get_version(),
       description='Modules that deal with sensor and data quality characterisation.',
       packages=find_packages(),
       install_requires=[

@@ -151,7 +151,7 @@ class GverifyTask(luigi.Task):
         # Initialise output variables for error case
         error_msg = ''
         ref_date = ''
-        ref_source = ''
+        ref_source_path = ''
         reference_resolution = ''
 
         try:
@@ -190,7 +190,7 @@ class GverifyTask(luigi.Task):
             ref_date = get_reference_date(
                 basename(reference_imagery[0].filename), band_id, first_acq.tag
             )
-            ref_source = _gls_version(reference_imagery[0].filename)
+            ref_source_path = reference_imagery[0].filename
 
             # reference resolution is required for the gqa calculation
             reference_resolution = [abs(x) for x in most_common(reference_imagery).resolution]
@@ -208,8 +208,8 @@ class GverifyTask(luigi.Task):
             run_args = {
                 'executable': self.executable,
                 'ref_resolution': reference_resolution,
-                'ref_date': str(ref_date),
-                'ref_source': str(ref_source),
+                'ref_date': (ref_date.replace(tzinfo=timezone.utc).isoformat() if ref_date else ''),
+                'ref_source_path': str(ref_source_path),
                 'granule': str(self.granule),
                 'error_msg': str(error_msg)
             }
@@ -295,15 +295,23 @@ class GQATask(luigi.Task):
             gverify_args = yaml.load(_md)
 
         try:
-            rh, tr, df = parse_gverify(self.input()['results'].path)
-            res = calculate_gqa(df, tr, gverify_args['ref_resolution'], self.standard_deviations,
-                                self.iterations, self.correlation_coefficient)
+            if 'error_msg' not in gverify_args:  # Gverify successfully ran
+                rh, tr, df = parse_gverify(self.input()['results'].path)
+                res = calculate_gqa(df, tr, gverify_args['ref_resolution'], self.standard_deviations,
+                                    self.iterations, self.correlation_coefficient)
 
-            # Add color residual values to the results
-            res['colors'] = {
-                _clean_name(i): _rounded(rh[rh.Color == i].Residual.values[0])
-                for i in rh.Color.values
-            }
+                # Add color residual values to the results
+                res['colors'] = {
+                    _clean_name(i): _rounded(rh[rh.Color == i].Residual.values[0])
+                    for i in rh.Color.values
+                }
+            else:
+                _LOG.debug('Writing NaNs for residuals; gverify failed to run')
+                res = {
+                    'final_gcp_count': 0,
+                    'residual': _populate_nan_residuals(),
+                    'error_message': gverify_args['error_msg']
+                }
 
         except (StopIteration, FileNotFoundError) as _:
             ERROR_LOGGER.error(
@@ -311,7 +319,7 @@ class GQATask(luigi.Task):
                     self.input()['results'].path)
             )
 
-            _LOG.info('Defaulting to NaN for the residual values.')
+            _LOG.debug('Defaulting to NaN for the residual values.')
             res = {
                 'final_gcp_count': 0,
                 'residual': _populate_nan_residuals(),
@@ -320,11 +328,13 @@ class GQATask(luigi.Task):
 
         finally:
             metadata = get_gqa_metadata(gverify_args['executable'])
-            metadata['gqa'] = {
-                'ref_source': gverify_args['ref_source'],
-                'ref_date': gverify_args['ref_date'],
-                'granule': gverify_args['granule']
-            }
+            metadata['ref_source_path'] = gverify_args['ref_source_path']
+            metadata['ref_source'] = (
+                _gls_version(metadata['ref_source_path'])
+                if metadata['ref_source_path'] else ''
+            )  # if ref_source_path is non-empty calculate version
+            metadata['ref_date'] = gverify_args['ref_date']
+            metadata['granule'] = gverify_args['granule']
             _write_gqa_yaml(temp_yaml, {**metadata, **res})
 
         self.output().makedirs()
@@ -577,7 +587,10 @@ def get_reference_date(filename, band_id, sat_id):
     )
 
     if matches and matches.group('band') == OLD_BAND_MAP[sat_id][band_id]:
-        return datetime.strptime(matches.group('yyyymmdd'), '%Y%m%d')
+        return (
+            datetime.strptime(matches.group('yyyymmdd'), '%Y%m%d')
+            .replace(tzinfo=timezone.utc)
+        )
 
     return None
 
