@@ -48,11 +48,11 @@ from eugl.fmask import run_command, CommandError
 from eugl.acquisition_info import get_land_ocean_bands
 from eugl.metadata import get_gqa_metadata
 
-from eugl.gqa.geometric_utils import BAND_MAP, OLD_BAND_MAP, SLC_OFF
-from eugl.gqa.geometric_utils import get_reference_data, reproject
 from eugl.gqa.geometric_utils import (
+    get_reference_data, reproject,
     _write_gqa_yaml, _populate_nan_residuals,
-    _gls_version, _clean_name, _rounded
+    _gls_version, _clean_name, _rounded,
+    BAND_MAP, OLD_BAND_MAP, SLC_OFF
 )
 
 from eodatasets.metadata.gqa import populate_from_gqa
@@ -106,7 +106,6 @@ class GverifyTask(luigi.Task):
     timeout = luigi.IntParameter(default=300)
 
     # Gverify Argument preparation
-    # TODO: determine if some of these datasets should be packaged as a distribution
     landsat_scenes_shapefile = luigi.Parameter()
     ocean_tile_list = luigi.Parameter()
     root_fix_qa_location = luigi.Parameter()
@@ -201,7 +200,6 @@ class GverifyTask(luigi.Task):
             self._run_gverify(vrt_file, source_band, outdir=workdir, extra=extra)
         except (ValueError, FileNotFoundError, CommandError) as ve:
             error_msg = str(ve)
-            # TODO CHECK ERROR LOG STRING
             ERROR_LOGGER.error('gverify was not executed because:\n {}'.format(error_msg))
         finally:
             # Write out runtime data to be processed by the gqa task
@@ -259,7 +257,6 @@ class GQATask(luigi.Task):
     output_yaml = luigi.Parameter()
     cleanup = luigi.Parameter()
 
-    # TODO: Example configuration file
     # GQA Algorithm parameters
     correlation_coefficient = luigi.FloatParameter()
     iterations = luigi.IntParameter()
