@@ -16,18 +16,19 @@ import math
 import re
 import logging
 import os
-from os.path import join as pjoin, dirname, basename, exists, isdir, splitext, abspath
+from os.path import join as pjoin, dirname, basename, exists, isdir, abspath
 import glob
-from pkg_resources import resource_filename
 import shutil
-import traceback
-import argparse
 from datetime import datetime, timezone
 from collections import Counter, namedtuple
-from subprocess import CalledProcessError
+from functools import partial
+from itertools import chain
+
+from pkg_resources import resource_filename
+from structlog import wrap_logger
+from structlog.processors import JSONRenderer
 
 import luigi
-import osr
 import pandas
 import rasterio
 from rasterio.warp import Resampling
@@ -35,26 +36,32 @@ from pathlib import Path
 from shapely.geometry import Polygon, shape
 import fiona
 import h5py
-from dateutil.parser import parse as parse_timestamp
+import yaml
 
 from wagl.data import write_img
-from wagl.constants import GroupName
 from wagl.acquisition import acquisitions
-from wagl.singlefile_workflow import DataStandardisation
 from wagl.constants import BandType
-from wagl.geobox import GriddedGeoBox
-from eugl.version import get_version
+from wagl.logging import ERROR_LOGGER
+from wagl.singlefile_workflow import DataStandardisation
+
 from eugl.fmask import run_command, CommandError
-from eugl.gqa.geometric_utils import BAND_MAP, OLD_BAND_MAP
-from eugl.gqa.geometric_utils import SLC_OFF
-from eugl.gqa.geometric_utils import get_reference_data
-from eugl.gqa.geometric_utils import reproject
-from eugl.gqa.geometric_utils import _write_failure_yaml, _write_gqa_yaml
-from eugl.gqa.geometric_utils import _gls_version, _clean_name, _rounded
+from eugl.acquisition_info import get_land_ocean_bands
+from eugl.metadata import get_gqa_metadata
+
+from eugl.gqa.geometric_utils import (
+    get_reference_data, reproject,
+    _write_gqa_yaml, _populate_nan_residuals,
+    _gls_version, _clean_name, _rounded,
+    BAND_MAP, OLD_BAND_MAP, SLC_OFF
+)
+
 from eodatasets.metadata.gqa import populate_from_gqa
 from eodatasets.serialise import read_yaml_metadata
 from eodatasets.serialise import write_yaml_metadata
 from eodatasets.verify import PackageChecksum
+
+
+write_yaml = partial(yaml.safe_dump, default_flow_style=False, indent=4)
 
 # TODO general luigi task cleanup
 #      see wagl.singlefile_workflow or wagl.multifile_workflow or tesp.workflow
@@ -64,8 +71,8 @@ from eodatasets.verify import PackageChecksum
 # TODO do not forget about the Landsat ocean list
 REEF_PR = resource_filename('eugl.gqa', 'ocean_list.csv')
 
-# TODO convert to structlog
-_LOG = logging.getLogger(__name__)
+_LOG = wrap_logger(logging.getLogger(__name__),
+                   processors=[JSONRenderer(indent=1, sort_keys=True)])
 
 # TODO functionally parse the parameters in the cfg at the task level
 # rather than find and read the internal cfg.
@@ -76,6 +83,166 @@ CONFIG = luigi.configuration.get_config()
 # TODO remove refs to l1t (landsat specific)
 
 
+class GverifyTask(luigi.Task):
+
+    # Imagery arguments
+    level1 = luigi.Parameter()
+    acq_parser_hint = luigi.OptionalParameter(default='')
+    granule = luigi.Parameter()
+    workdir = luigi.Parameter()
+
+    # Gverify arguments
+    executable = luigi.Parameter()
+    ld_library_path = luigi.Parameter()
+    gdal_data = luigi.Parameter()
+    pyramid_levels = luigi.Parameter()
+    geotiff_csv = luigi.Parameter()
+    thread_count = luigi.Parameter()
+    null_value = luigi.Parameter()
+    chip_size = luigi.Parameter()
+    grid_size = luigi.Parameter()
+    root_fix_qa_location = luigi.Parameter()
+    correlation_coefficient = luigi.FloatParameter()
+    timeout = luigi.IntParameter(default=300)
+
+    # Gverify Argument preparation
+    landsat_scenes_shapefile = luigi.Parameter()
+    ocean_tile_list = luigi.Parameter()
+    root_fix_qa_location = luigi.Parameter()
+    reference_directory = luigi.Parameter()
+    backup_reference_directory = luigi.Parameter()
+
+    _args_file = 'gverify_run.yaml'
+    _gverify_results = 'image-gverify.res'
+
+    def requires(self):
+        return [DataStandardisation(self.level1, self.workdir, self.granule)]
+
+    def output(self):
+        workdir = pjoin(self.workdir, 'gverify')
+
+        return {
+            'runtime_args': luigi.LocalTarget(pjoin(workdir, self._args_file)),
+            'results': luigi.LocalTarget(pjoin(workdir, self._gverify_results)),
+        }
+
+    def exists(self):
+        return all(os.path.isfile(_f) for _f in self.output().values())
+
+    def run(self):
+
+        # Subdirectory in the task workdir
+        workdir = pjoin(self.workdir, 'gverify')
+
+        if not exists(workdir):
+            os.makedirs(workdir)
+
+        # Get acquisition metadata, limit it to executing granule
+        container = (
+            acquisitions(self.level1, self.acq_parser_hint)
+            .get_granule(self.granule, container=True)
+        )
+
+        first_acq = container.get_acquisitions()[0]
+        geobox = first_acq.gridded_geo_box()
+        timestamp = first_acq.acquisition_datetime
+
+        # Initialise output variables for error case
+        error_msg = ''
+        ref_date = ''
+        ref_source_path = ''
+        reference_resolution = ''
+
+        try:
+            # retrieve a set of matching landsat scenes based on polygons
+            landsat_scenes = intersecting_landsat_scenes(
+                geobox_to_polygon(geobox),
+                self.landsat_scenes_shapefile
+            )
+
+            if is_land_tile(self.granule, self.ocean_tile_list):
+                location = get_land_ocean_bands(container)['land_band']
+                extra = ['-g', self.grid_size]
+            else:
+                location = get_land_ocean_bands(container)['ocean_band']
+                points_txt = pjoin(workdir, 'points.txt')
+                collect_gcp(self.root_fix_qa_location, landsat_scenes, points_txt)
+                extra = ['-t', 'FIXED_LOCATION', '-t_file', points_txt]
+
+            # Extract the source band from the results archive
+            with h5py.File(self.input()[0].path, 'r') as h5:
+
+                band_id = h5[location].attrs['band_id']
+                source_band = pjoin(workdir, 'source.tif')
+                source_image = h5[location][:]
+                source_image[source_image == -999] = 0
+                write_img(source_image, source_band, geobox=geobox, nodata=0,
+                          options={'compression': 'deflate', 'zlevel': 1})
+
+            # returns a reference image from one of ls5/7/8
+            #  the gqa band id will differ depending on if the source image is 5/7/8
+            reference_imagery = get_reference_imagery(
+                landsat_scenes, timestamp, band_id, first_acq.tag,
+                [self.reference_directory, self.backup_reference_directory]
+            )
+
+            ref_date = get_reference_date(
+                basename(reference_imagery[0].filename), band_id, first_acq.tag
+            )
+            ref_source_path = reference_imagery[0].filename
+
+            # reference resolution is required for the gqa calculation
+            reference_resolution = [abs(x) for x in most_common(reference_imagery).resolution]
+
+            vrt_file = pjoin(workdir, 'reference.vrt')
+            build_vrt(reference_imagery, vrt_file, workdir)
+
+            self._run_gverify(vrt_file, source_band, outdir=workdir, extra=extra)
+        except (ValueError, FileNotFoundError, CommandError) as ve:
+            error_msg = str(ve)
+            ERROR_LOGGER.error('gverify was not executed because:\n {}'.format(error_msg))
+        finally:
+            # Write out runtime data to be processed by the gqa task
+            run_args = {
+                'executable': self.executable,
+                'ref_resolution': reference_resolution,
+                'ref_date': (ref_date.isoformat() if ref_date else ''),
+                'ref_source_path': str(ref_source_path),
+                'granule': str(self.granule),
+                'error_msg': str(error_msg)
+            }
+            with self.output()['runtime_args'].open('w') as fd:
+                write_yaml(run_args, fd)
+
+    def _run_gverify(self, reference, source, outdir, extra=None,
+                     resampling=Resampling.bilinear):
+
+        resampling_method = {0: 'NN', 1: 'BI', 2: 'CI'}
+        extra = extra or []  # Default to empty list
+
+        wrapper = [f'export LD_LIBRARY_PATH={self.ld_library_path}:$LD_LIBRARY_PATH; ',
+                   f'export GDAL_DATA={self.gdal_data}; ',
+                   f'export GEOTIFF_CSV={self.geotiff_csv}; ']
+
+        gverify = [self.executable,
+                   '-b', reference,
+                   '-m', source,
+                   '-w', outdir,
+                   '-l', outdir,
+                   '-o', outdir,
+                   '-p', str(self.pyramid_levels),
+                   '-n', str(self.thread_count),
+                   '-nv', str(self.null_value),
+                   '-c', str(self.correlation_coefficient),
+                   '-r', resampling_method[resampling],
+                   '-cs', str(self.chip_size)]
+
+        cmd = ['bash', '-c', "'{}'".format(' '.join(chain(wrapper, gverify, extra)))]
+
+        _LOG.debug('calling gverify {}'.format(' '.join(cmd)))
+        run_command(cmd, outdir, timeout=self.timeout)
+
+
 class GQATask(luigi.Task):
     """
     Calculate GQA for a single (Sentinel-2) granule.
@@ -84,189 +251,134 @@ class GQATask(luigi.Task):
     """
 
     level1 = luigi.Parameter()
+    acq_parser_hint = luigi.OptionalParameter(default='')
     granule = luigi.Parameter()
     workdir = luigi.Parameter()
-    ocean_tile_list = luigi.Parameter()
-    reference_directory = luigi.Parameter()
-    backup_reference = luigi.Parameter()
-    landsat_scenes_shapefile = luigi.Parameter()
     output_yaml = luigi.Parameter()
-    land_band = luigi.Parameter()
-    ocean_band = luigi.Parameter()
     cleanup = luigi.Parameter()
 
-    # TODO this is unmaintainable, obviously gverify needs to be a separate task
-    gverify_binary = luigi.Parameter()
-    gverify_ld_library_path = luigi.Parameter()
-    gverify_gdal_data = luigi.Parameter()
-    gverify_pyramid_levels = luigi.Parameter()
-    gverify_geotiff_csv = luigi.Parameter()
-    gverify_formats = luigi.Parameter()
-    gverify_thread_count = luigi.Parameter()
-    gverify_null_value = luigi.Parameter()
-    gverify_correlation_coefficient = luigi.Parameter()
-    gverify_chip_size = luigi.Parameter()
-    gverify_grid_size = luigi.Parameter()
-    gverify_root_fix_qa_location = luigi.Parameter()
-    gverify_iterations = luigi.Parameter()
-    gverify_standard_deviations = luigi.Parameter()
-    gverify_timeout = luigi.IntParameter(default=300)
+    # GQA Algorithm parameters
+    correlation_coefficient = luigi.FloatParameter()
+    iterations = luigi.IntParameter()
+    standard_deviations = luigi.FloatParameter()
 
     def requires(self):
-        return [DataStandardisation(self.level1, self.workdir, self.granule)]
+        return GverifyTask(
+            level1=self.level1,
+            granule=self.granule,
+            acq_parser_hint=self.acq_parser_hint,
+            correlation_coefficient=self.correlation_coefficient,
+            workdir=self.workdir
+        )
 
     def output(self):
-        output_yaml = pjoin(self.workdir, self.output_yaml.format(granule=self.granule))
+        output_yaml = pjoin(
+            self.workdir,
+            str(self.output_yaml).format(granule=self.granule)
+        )
         return luigi.LocalTarget(output_yaml)
 
     def run(self):
-        temp_directory = pjoin(self.workdir, 'work')
-        if not exists(temp_directory):
-            os.makedirs(temp_directory)
+        temp_yaml = pjoin(
+            self.workdir,
+            'gverify',
+            str(self.output_yaml).format(granule=self.granule)
+        )
 
-        temp_yaml = pjoin(temp_directory, self.output_yaml.format(granule=self.granule))
+        res = {}
+
+        # Read gverify arguments from yaml
+        with self.input()['runtime_args'].open('r') as _md:
+            gverify_args = yaml.load(_md)
 
         try:
-            land = is_land_tile(self.granule, self.ocean_tile_list)
-            if land:
-                location = "{}/{}".format(self.granule, self.land_band)
+            if 'error_msg' not in gverify_args:  # Gverify successfully ran
+                rh, tr, df = parse_gverify(self.input()['results'].path)
+                res = calculate_gqa(df, tr, gverify_args['ref_resolution'], self.standard_deviations,
+                                    self.iterations, self.correlation_coefficient)
+
+                # Add color residual values to the results
+                res['colors'] = {
+                    _clean_name(i): _rounded(rh[rh.Color == i].Residual.values[0])
+                    for i in rh.Color.values
+                }
             else:
-                location = "{}/{}".format(self.granule, self.ocean_band)
+                _LOG.debug('Writing NaNs for residuals; gverify failed to run')
+                res = {
+                    'final_gcp_count': 0,
+                    'residual': _populate_nan_residuals(),
+                    'error_message': gverify_args['error_msg']
+                }
 
-            h5 = h5py.File(self.input()[0].path, 'r')
-            geobox = GriddedGeoBox.from_dataset(h5[location])
+        except (StopIteration, FileNotFoundError) as _:
+            ERROR_LOGGER.error(
+                "Gverify results file contains no tabulated data; {}".format(
+                    self.input()['results'].path)
+            )
 
-            landsat_scenes = intersecting_landsat_scenes(geobox_to_polygon(geobox),
-                                                         self.landsat_scenes_shapefile)
-            timestamp = acquisition_timestamp(h5, self.granule)
-            band_id = h5[location].attrs['band_id']
-            # TODO landsat sat_id
-            sat_id = 's2'
-            references = reference_imagery(landsat_scenes, timestamp, band_id, sat_id,
-                                           [self.reference_directory, self.backup_reference])
+            _LOG.debug('Defaulting to NaN for the residual values.')
+            res = {
+                'final_gcp_count': 0,
+                'residual': _populate_nan_residuals(),
+                'error_message': "No GCP's were found"
+            }
 
-            _LOG.debug("granule %s found reference images %s",
-                       self.granule, [ref.filename for ref in references])
-            vrt_file = pjoin(temp_directory, 'reference.vrt')
-            build_vrt(references, vrt_file, temp_directory)
-
-            source_band = pjoin(temp_directory, 'source.tif')
-            source_image = h5[location][:]
-            source_image[source_image == -999] = 0
-            write_img(source_image, source_band, geobox=geobox, nodata=0,
-                      options={'compression': 'deflate', 'zlevel': 1})
-
-            if land:
-                extra = ['-g', self.gverify_grid_size]
-                cmd = gverify_cmd(self, vrt_file, source_band, temp_directory, extra=extra)
-                _LOG.debug('calling gverify %s', ' '.join(cmd))
-                run_command(cmd, temp_directory, timeout=self.gverify_timeout)
-            else:
-                # create a set of fix-points from landsat path-row
-                points_txt = pjoin(temp_directory, 'points.txt')
-                collect_gcp(self.gverify_root_fix_qa_location, landsat_scenes, points_txt)
-
-                extra = ['-t', 'FIXED_LOCATION', '-t_file', points_txt]
-                cmd = gverify_cmd(self, vrt_file, source_band, temp_directory, extra=extra)
-                _LOG.debug('calling gverify %s', ' '.join(cmd))
-                run_command(cmd, temp_directory, timeout=self.gverify_timeout)
-
-            _LOG.debug('finished gverify on %s', self.granule)
-            parse_gqa(self, temp_yaml, references, band_id, sat_id, temp_directory)
-
-        except (ValueError, FileNotFoundError, CommandError) as ve:
-            _LOG.debug('failed because GQA cannot be calculated: %s', str(ve))
-            _write_failure_yaml(temp_yaml, self.granule, str(ve),
-                                gverify_version=self.gverify_binary.split('_')[-1])
-            with open(pjoin(temp_directory, 'gverify.log'), 'w') as src:
-                src.write('gverify was not executed because:\n')
-                src.write(str(ve))
+        finally:
+            metadata = get_gqa_metadata(gverify_args['executable'])
+            metadata['ref_source_path'] = gverify_args['ref_source_path']
+            metadata['ref_source'] = (
+                _gls_version(metadata['ref_source_path'])
+                if metadata['ref_source_path'] else ''
+            )  # if ref_source_path is non-empty calculate version
+            metadata['ref_date'] = gverify_args['ref_date']
+            metadata['granule'] = gverify_args['granule']
+            _write_gqa_yaml(temp_yaml, {**metadata, **res})
 
         self.output().makedirs()
+        # copy temp to output final location
         shutil.copy(temp_yaml, self.output().path)
 
-        temp_log = glob.glob(pjoin(temp_directory, '*gverify.log'))[0]
-        shutil.copy(temp_log, pjoin(self.workdir, basename(temp_log)))
-
         if int(self.cleanup):
-            _cleanup_workspace(temp_directory)
+            _cleanup_workspace(pjoin(self.workdir, 'gverify'))
 
 
-def collect_gcp(fix_location, landsat_scenes, points_txt):
-    with open(points_txt, 'w') as fl:
+def collect_gcp(fix_location, landsat_scenes, result_file):
+    """ Concatenates gcps from multiple scenes """
+    with open(result_file, 'w') as dest:
         for scene in landsat_scenes:
             path = '{0:0=3d}'.format(scene['path'])
             row = '{0:0=3d}'.format(scene['row'])
-            _LOG.debug('collecting GPCs from %s %s', path, row)
-            this_points_txt = pjoin(fix_location, path, row, 'points.txt')
-            with open(this_points_txt) as fl2:
-                for l in fl2:
-                    _LOG.debug('GQA: {} says {}'.format(this_points_txt, l))
-                    fl.write(l)
+            _LOG.debug('collecting GPCs from {} {}'.format(path, row))
+            scene_gcp_file = pjoin(fix_location, path, row, 'points.txt')
+            with open(scene_gcp_file) as src:
+                for l in src:
+                    dest.write(l)
 
 
-def parse_gqa(task, output_yaml, reference_images, band_id, sat_id, work_dir):
-    granule = task.granule
-    formats = task.gverify_formats.split(',')
-    result_file = pjoin(work_dir, [f for f in formats if f.endswith('.res')][0])
-    resolution = [abs(x) for x in most_common(reference_images).resolution]
-    first_ref = reference_images[0].filename
-
-    repo_path = 'https://github.com/OpenDataCubePipelines/eugl.git'
-
-    ref_date = find_reference_date(basename(first_ref), band_id, sat_id)
-    _LOG.debug('ref_date for {} is {}'.format(first_ref, ref_date))
-    result = dict(software_version=get_version(),
-                  software_repository=repo_path,
-                  granule=granule,
-                  ref_source=_gls_version(first_ref),
-                  ref_date=ref_date,
-                  gverify_version=task.gverify_binary.split('_')[-1])
-
-    rh = pandas.read_csv(result_file, sep=r'\s*', skiprows=6,
+def parse_gverify(res_filepath):
+    """ Read from the image-gverify.res output from gverify """
+    # I want a comment on what rh stands for
+    rh = pandas.read_csv(res_filepath, sep=r'\s*', skiprows=6,
                          names=['Color', 'Residual'], header=None, nrows=5,
                          engine='python')
 
-    result['colors'] = {_clean_name(i): _rounded(rh[rh.Color == i].Residual.values[0])
-                            for i in rh.Color.values}
-
-    tr = pandas.read_csv(result_file, sep=r'\=', skiprows=3,
+    # Something talking about tr / Residual XY
+    tr = pandas.read_csv(res_filepath, sep=r'\=', skiprows=3,
                          names=['Residual_XY', 'Residual'], header=None,
                          nrows=2, engine='python')
 
-    column_names = ['Point_ID', 'Chip', 'Line', 'Sample', 'Map_X', 'Map_Y', 'Correlation',
-                    'Y_Residual', 'X_Residual', 'Outlier']
+    column_names = [
+        'Point_ID', 'Chip', 'Line', 'Sample', 'Map_X', 'Map_Y',
+        'Correlation', 'Y_Residual', 'X_Residual', 'Outlier'
+    ]
 
-    try:
-        df = pandas.read_csv(result_file, sep=r'\s*', skiprows=22,
-                             names=column_names, header=None, engine='python')
+    df = pandas.read_csv(res_filepath, sep=r'\s*', skiprows=22,
+                         names=column_names, header=None, engine='python')
 
-        _LOG.debug('calculating GQA for %s', granule)
-        gqa = calculate_gqa(task, df, tr, resolution)
-        result = {**result, **gqa}
-
-        _write_gqa_yaml(output_yaml, result)
-        _LOG.debug('finished writing GQA for %s', granule)
-
-    except StopIteration:
-        # empty table for the gverify results file
-        msg = "No GCP's were found."
-        _LOG.error("Gverify results file contains no tabulated data; %s", results_file)
-        _LOG.info('Defaulting to NaN for the residual values.')
-
-        # a copy of empty points is used to force yaml not to use an alias
-        result['final_gcp_count'] = 0
-        result['residual'] = _populate_nan_residuals()
-        result['error_message'] = msg
-
-        _write_gqa_yaml(output_yaml, result)
+    return (rh, tr, df)
 
 
-def calculate_gqa(task, df, tr, resolution):
-    stddev = float(task.gverify_standard_deviations)
-    correl = float(task.gverify_correlation_coefficient)
-    iterations = int(task.gverify_iterations)
-
+def calculate_gqa(df, tr, resolution, stddev=1.0, iterations=1, correl=0.75):
     # Query the data to exclude low values of correl and any outliers
     subset = df[(df.Correlation > correl) & (df.Outlier == 1)]
 
@@ -292,8 +404,9 @@ def calculate_gqa(task, df, tr, resolution):
     # Compute new values to refine the selection
     for _ in range(iterations):
         # Look for any residuals
-        subset = subset[(abs(subset.X_Residual - current['mean']['x']) < (stddev * current['stddev']['x'])) &
-                        (abs(subset.Y_Residual - current['mean']['y']) < (stddev * current['stddev']['y']))]
+        subset = subset[
+            (abs(subset.X_Residual - current['mean']['x']) < (stddev * current['stddev']['x'])) &
+            (abs(subset.Y_Residual - current['mean']['y']) < (stddev * current['stddev']['y']))]
 
         # Re-calculate the mean and standard deviation for both X & Y residuals
         current = calculate_stats(subset)
@@ -328,34 +441,6 @@ def calculate_gqa(task, df, tr, resolution):
             'cep90': _rounded(cep90)
         }
     }
-
-
-def gverify_cmd(task, reference, source, work_dir,
-                extra=None, resampling=Resampling.bilinear):
-
-    resampling_method = {0: 'NN', 1: 'BI', 2: 'CI'}
-    if extra is None:
-        extra = []
-
-    wrapper = [ f'export LD_LIBRARY_PATH={task.gverify_ld_library_path}:$LD_LIBRARY_PATH; ',
-                f'export GDAL_DATA={task.gverify_gdal_data}; ',
-                f'export GEOTIFF_CSV={task.gverify_geotiff_csv}; ' ]
-
-    gverify = [ task.gverify_binary,
-                '-b', reference,
-                '-m', source,
-                '-w', work_dir,
-                '-l', work_dir,
-                '-o', work_dir,
-                '-p', str(task.gverify_pyramid_levels),
-                '-n', str(task.gverify_thread_count),
-                '-nv', str(task.gverify_null_value),
-                '-c', str(task.gverify_correlation_coefficient),
-                '-r', resampling_method[resampling],
-                '-cs', str(task.gverify_chip_size) ]
-
-    return ['bash', '-c',
-            "'{}'".format(' '.join(wrapper + gverify + extra))]
 
 
 def most_common(sequence):
@@ -405,11 +490,6 @@ def build_vrt(reference_images, out_file, work_dir):
     run_command(command, work_dir)
 
 
-def acquisition_timestamp(h5_file, granule):
-    result = h5_file[f'{granule}/{GroupName.ATMOSPHERIC_INPUTS_GRP.value}'].attrs['acquisition-datetime']
-    return parse_timestamp(result)
-
-
 def is_land_tile(granule, ocean_tile_list):
     tile_id = granule.split('_')[-2][1:]
 
@@ -437,10 +517,12 @@ def intersecting_landsat_scenes(dataset_polygon, landsat_scenes_shapefile):
             if shape(scene['geometry']).intersects(dataset_polygon)]
 
 
-def reference_imagery(path_rows, timestamp, band_id, sat_id, reference_directories):
-    australian = [entry
-                  for entry in path_rows
-                  if 87 <= entry['path'] <= 116 and 67 <= entry['row'] <= 91]
+def get_reference_imagery(path_rows, timestamp, band_id, sat_id, reference_directories):
+    australian = [
+        entry
+        for entry in path_rows
+        if 87 <= entry['path'] <= 116 and 67 <= entry['row'] <= 91
+    ]
 
     if australian == []:
         raise ValueError("No Australian path row found")
@@ -454,58 +536,91 @@ def reference_imagery(path_rows, timestamp, band_id, sat_id, reference_directori
 
         first, *rest = directories
         folder = pjoin(first, path, row)
+
+        # A closest match, or set of reference images is considered in situations
+        #  where temporal variance (for example with sand dunes) introduces
+        #  errors into the GQA assessment.
+        # This can be determined by examining the error of a stack of images in
+        #  pairwise comparison against a stack compared against a master image.
+
+        # If a folder exists for the pathrow find the closest match
+        #  otherwise iterate through the directory list.
         if isdir(folder):
             return closest_match(folder, timestamp, band_id, sat_id)
+
         return find_references(entry, rest)
 
     result = [reference
               for entry in australian
               for reference in find_references(entry, reference_directories)]
 
-    if result == []:
+    if not result:
         raise ValueError(f"No reference found for {path_rows}")
 
     return [CSR.from_file(image) for image in result]
 
 
-def find_reference_date(filename, band_id, sat_id):
-    pattern1 = re.compile("(?P<sat>[A-Z, 0-9]{3})(?P<pr>[0-9]{6})(?P<date>[0-9]{7})"
-                          "(?P<stuff>\\w+?_)(?P<band>\\w+)")
-    pattern2 = re.compile("p(?P<path>[0-9]{3})r(?P<row>[0-9]{3})(?P<junk>_[A-Za-z, 0-9]{3})"
-                          "(?P<date>[0-9]{8})_z(?P<zone>[0-9]{2})_(?P<band>[0-9]{2})")
+def get_reference_date(filename, band_id, sat_id):
+    """get_reference_date: extracts date from reference filename
 
-    match1 = pattern1.match(filename)
-    match2 = pattern2.match(filename)
+    :param filename: GQA reference image
+    :param band_id: band id for the observed band
+    :param sat_id: satellite id for the acquisition
+    """
 
-    if match1 is not None:
-        if match1.group('band') == BAND_MAP[match1.group('sat')][sat_id][band_id]:
-            return datetime.strptime(match1.group('date'), '%Y%j')
+    matches = re.match(
+        '(?P<sat>[A-Z0-9]{3})(?P<pathrow>[0-9]{6})'
+        '(?P<year_doy>[0-9]{7})[^_]+_(?P<band>\\w+)', filename
+    )
 
-    if match2 is not None:
-        if match2.group('band') == OLD_BAND_MAP[sat_id][band_id]:
-            return datetime.strptime(match2.group('date'), '%Y%m%d')
+    # Primary reference set use Julian date
+    if matches and matches.group('band') == BAND_MAP[matches.group('sat')][sat_id][band_id]:
+        return (
+            datetime.strptime(matches.group('year_doy'), '%Y%j')
+            .replace(tzinfo=timezone.utc)
+        )
+
+    # Back up set use YYYY-MM-DD format
+    matches = re.match(
+        'p(?P<path>[0-9]{3})r(?P<row>[0-9]{3}).{4}(?P<yyyymmdd>[0-9]{8})'
+        '_z(?P<zone>[0-9]{2})_(?P<band>[0-9]{2})', filename
+    )
+
+    if matches and matches.group('band') == OLD_BAND_MAP[sat_id][band_id]:
+        return (
+            datetime.strptime(matches.group('yyyymmdd'), '%Y%m%d')
+            .replace(tzinfo=timezone.utc)
+        )
 
     return None
 
 
 def closest_match(folder, timestamp, band_id, sat_id):
+    """
+    Returns the reference observation closest to the observation being
+        evaluated
+    """
     # copied from geometric_utils.get_reference_data
 
-    filenames = [name
-                 for name in os.listdir(folder)
-                 if splitext(name)[1].lower() in ['.tif', '.tiff']]
+    # We can't filter for band_ids here because it depends on the
+    #  platform for the reference image
+    filenames = [
+        name
+        for name in os.listdir(folder)
+        if re.match(f'.*\.tiff?$', name, re.IGNORECASE)
+    ]
 
-    if filenames == []:
+    if not filenames:
         return []
 
     df = pandas.DataFrame(columns=["filename", "diff"])
-
     for filename in filenames:
-        date = find_reference_date(filename, band_id, sat_id)
+        date = get_reference_date(filename, band_id, sat_id)
         if date is None:
             continue
 
-        diff = abs(date.replace(tzinfo=timezone.utc) - timestamp).total_seconds()
+        diff = abs(date - timestamp).total_seconds()
+
         df = df.append({"filename": filename, "diff": diff}, ignore_index=True)
 
     closest = df.loc[df['diff'].argmin()]
@@ -515,7 +630,7 @@ def closest_match(folder, timestamp, band_id, sat_id):
 # TODO path/row are no longer properties of acquisition as they're landsat
 #      specific. Need alternate method of finding correct reference directory
 def _can_process(l1t_path, granule):
-    _LOG.debug('Checking L1T: %r', l1t_path)
+    _LOG.debug('Checking L1T: {}'.format(str(l1t_path)))
     acqs = acquisitions(l1t_path).get_all_acquisitions(granule)
     landsat_path = int(acqs[0].path)
     landsat_row = int(acqs[0].row)
@@ -547,7 +662,7 @@ def _can_process(l1t_path, granule):
 
 
 def _cleanup_workspace(out_path):
-    _LOG.debug('Cleaning up working directory: %r', out_path)
+    _LOG.debug('Cleaning up working directory: {}'.format(out_path))
     shutil.rmtree(out_path)
 
 
@@ -598,14 +713,13 @@ def get_reference_directory(scene_name, landsat_path, landsat_row):
     bckup_ref_dir = CONFIG.get('work', 'backup_reference')
     reference_dir = pjoin(ref_dir, path, row)
     if not isdir(reference_dir):
-        _LOG.info('No reference directory (%r) for %r',
-                  reference_dir, scene_name)
-        _LOG.info('Trying backup reference directory: (%r)', bckup_ref_dir)
+        _LOG.info('No reference directory ({}) for {}'.format(reference_dir, scene_name))
+        _LOG.info('Trying backup reference directory: ({})'.format(bckup_ref_dir))
         ref_dir = bckup_ref_dir
         reference_dir = pjoin(ref_dir, path, row)
         if not isdir(reference_dir):
-            _LOG.info('No backup reference directory (%r) for %r',
-                      reference_dir, scene_name)
+            _LOG.info('No backup reference directory ({}) for {}'.format(
+                reference_dir, scene_name))
             msg = "No reference or backup reference imagery available."
             return False, msg
     return ref_dir, None
@@ -680,276 +794,6 @@ class ReprojectImage(luigi.Task):
         # warp
         src_fname = pjoin(acq.dir_name, acq.file_name)
         reproject(src_fname, ref_fname, out_fname, resampling)
-
-
-# TODO potentially not need if better fleshed out
-class RunGverify(luigi.Task):
-    """
-    Run the Gverify tool.
-    """
-    #: :type: str
-    l1t_path = luigi.Parameter()
-    #: :type: str
-    out_path = luigi.Parameter()
-
-    allow_failure = luigi.BoolParameter(default=True)
-
-    resources = {
-        'gverify': 1
-    }
-
-    def requires(self):
-        # Get the acquisition & geobox
-        acq = get_acquisition(self.l1t_path)
-        geobox = acq.gridded_geo_box()
-
-        # get the reference image
-        ref_dir, _ = get_acq_reference_directory(acq)
-        ref_fname, _ = get_reference_data(acq, ref_dir)
-
-        with rasterio.open(ref_fname) as ds:
-            ref_res = ds.res
-            ref_crs = osr.SpatialReference()
-            ref_crs.ImportFromWkt(ds.crs.wkt)
-
-        same_crs = geobox.crs.IsSame(ref_crs)
-        same_pix = ((abs(ref_res[0]) == abs(geobox.pixelsize[0])) and
-                    (abs(ref_res[1]) == abs(geobox.pixelsize[1])))
-
-        # we reproject if either the crs or the pixel resolutions
-        # between the source and reference imagery are different
-        if same_crs and same_pix:
-            return [CreateGQADirs(self.out_path)]
-        else:
-            return [ReprojectImage(self.l1t_path, self.out_path)]
-
-    def output(self):
-        return luigi.LocalTarget(pjoin(self.out_path, 'run.txt'))
-
-    def on_failure(self, exception):
-        msg = exception.message
-        traceback_string = traceback.format_exc()
-        _LOG.info(msg)
-        _LOG.info(traceback_string)
-        return_code = exception.returncode
-
-        # get the reference image
-        acq = get_acquisition(self.l1t_path)
-        scene_id = basename(dirname(acq.dir_name))
-        ref_dir, _ = get_acq_reference_directory(acq)
-        ref_fname, ref_date = get_reference_data(acq, ref_dir)
-
-        # TODO replace scene_id with level1 (more generic)
-        report = [u'Status: fail\n',
-                  u'gverify error code: {}'.format(return_code),
-                  u'scene_id: {}'.format(scene_id),
-                  u'reference_filename: {}'.format(ref_fname),
-                  u'reference_acquisition_date: {}'.format(ref_date),
-                  msg]
-        with self.output().open('w') as src:
-            src.writelines(report)
-
-        if not self.allow_failure:
-            return traceback_string
-        else:
-            pass
-
-    def on_success(self):
-        report = [u'Status: success\n',
-                  u'No errors reported']
-        with self.output().open('w') as src:
-            src.writelines(report)
-
-    def run(self):
-        out_path = self.out_path
-        # TODO define the config items as a luigi parameter
-        input_img_format = CONFIG.get('work', 'reproject_output_format')
-
-        # Gverify parameters
-        # TODO define the config items as a luigi parameter
-        output_format = CONFIG.get('gverify', 'formats').split(',')
-        renamed_format = CONFIG.get('gverify', 'renamed_format')
-        pyramid_levels = CONFIG.getint('gverify', 'pyramid_levels')
-        thread_count = CONFIG.getint('gverify', 'thread_count')
-        null_value = CONFIG.getint('gverify', 'null_value')
-        cor_coef = CONFIG.getfloat('gverify', 'correlation_coefficient')
-        cs = CONFIG.getint('gverify', 'chip_size')
-        gs = CONFIG.getint('gverify', 'grid_size')
-        root_fix_qa = CONFIG.get('gverify', 'root_fix_qa_location')
-        gverify_binary = CONFIG.get('gverify', 'binary')
-
-        # get the acquisition
-        # TODO fix path/row logic
-        acq = get_acquisition(self.l1t_path)
-        path = '{0:0=3d}'.format(acq.path)
-        row = '{0:0=3d}'.format(acq.row)
-
-        # file path name to the fix_QA points file
-        fix_qa_location_file = pjoin(root_fix_qa, path, row, 'points.txt')
-
-        # get the reference image
-        ref_dir, _ = get_acq_reference_directory(acq)
-        ref_fname, ref_date = get_reference_data(acq, ref_dir)
-
-        # check if we have needed to reproject the source image or not
-        band = acq.band_num
-        src_fname = pjoin(out_path, input_img_format.format(band=band))
-        if not exists(src_fname):
-            src_fname = pjoin(acq.dir_name, acq.file_name)
-
-        # TODO: * execute as luigi.ExternalTask (might simplify the code)
-        gverify(acq, src_fname, ref_fname, ref_date, out_path, pyramid_levels,
-                thread_count, null_value, cor_coef, cs, gs, output_format,
-                renamed_format, gverify_binary, fix_qa_location_file)
-
-
-# TODO potentially not need if better fleshed out
-class CalculateGQA(luigi.Task):
-    """
-    Interpret the results that are output from the Gverfiy program
-    and calcualte the GQA.
-    """
-    #: :type: str
-    l1t_path = luigi.Parameter()
-    #: :type: str
-    out_path = luigi.Parameter()
-
-    def requires(self):
-        return [RunGverify(self.l1t_path, self.out_path)]
-
-    def output(self):
-        out_path = self.out_path
-        # TODO define the config items as a luigi parameter
-        out_fname = pjoin(out_path, CONFIG.get('gqa', 'gqa_output_format'))
-        return luigi.LocalTarget(out_fname)
-
-    def run(self):
-        could_be_gverified, msg = self._check_was_successful()
-        acq = get_acquisition(self.l1t_path)
-        scene_id = basename(dirname(acq.dir_name))
-        if not could_be_gverified:
-            _write_failure_yaml(self.output().path, scene_id, msg)
-            return
-
-        out_path = self.out_path
-        src_date = acq.scene_center_date.isoformat().replace('-', '')
-        band = acq.band_num
-
-        # Config params
-        # TODO define the config items as a luigi parameter
-        stddev = CONFIG.getfloat('gqa', 'standard_deviations')
-        cor_coef = CONFIG.getfloat('gqa', 'correlation_coefficient')
-        formats = CONFIG.get('gverify', 'formats').split(',')
-        results_fmt = CONFIG.get('gverify', 'renamed_format')
-
-        # get the reference image
-        ref_dir, _ = get_acq_reference_directory(acq)
-        ref_fname, ref_date = get_reference_data(acq, ref_dir)
-
-        # output resolution
-        with rasterio.open(ref_fname) as ds:
-            res = (abs(ds.res[0]), abs(ds.res[1]))
-
-        # get the gverify results filename
-        fmt = [f for f in formats if '.res' in f][0]
-        fmt = fmt[fmt.find('gverify'):]
-        results_fname = results_fmt.format(acquisition_date=src_date,
-                                           reference_date=ref_date,
-                                           band=band, fmt=fmt)
-        results_fname = pjoin(out_path, results_fname)
-
-        # calculate the gqa figures
-        out_fname = pjoin(out_path, CONFIG.get('gqa', 'gqa_output_format'))
-        _LOG.info('Calculating results file %r -> %r', results_fname,
-                  out_fname)
-        calculate_gqa(results_fname, out_fname, ref_fname, scene_id,
-                      r=cor_coef, stddev=stddev, iterations=1, resolution=res)
-
-    def _check_was_successful(self):
-        with self.input()[0].open('r') as f:
-            report = f.readlines()
-
-        was_successful = str(report[0].split(':')[1]).strip() == 'success'
-        msg = str(report[1])
-        return was_successful, msg
-
-
-# TODO potentially not need if better fleshed out
-class NotProcessedTask(luigi.Task):
-
-    """
-    A separate task for scenes that couldn't be run through
-    the gverify process.
-    """
-
-    #: :type: str
-    l1t_path = luigi.Parameter()
-    #: :type: str
-    out_path = luigi.Parameter()
-    #: :type: str
-    msg = luigi.Parameter()
-
-    def requires(self):
-        return []
-
-    def output(self):
-        out_path = self.out_path
-        # TODO define the config items as a luigi parameter
-        out_fname = pjoin(out_path, CONFIG.get('gqa', 'gqa_output_format'))
-        return luigi.LocalTarget(out_fname)
-
-    def run(self):
-        self.output().makedirs()
-        scene_id = basename(self.l1t_path)
-        _write_failure_yaml(self.output().path, scene_id, self.msg)
-        report = ['The gverify program was not executed because:\n',
-                  self.msg]
-        with open(pjoin(self.out_path, 'gverify.log'), 'w') as src:
-            src.writelines(report)
-
-
-# TODO delete this once GQATask is done
-class GqaTask(luigi.Task):
-
-    """
-    Issues a RunGverify task or NotProcessedTask based on whether
-    the scene is within the Australian path/row list, and has
-    reference imagery available.
-    """
-
-    level1 = luigi.Parameter()
-    granule = luigi.Parameter()
-    workdir = luigi.Parameter()
-
-    def requires(self):
-        out_path = self.out_path + '-work'
-        process, msg = _can_process(self.level1)
-        if process:
-            return [CalculateGQA(self.level1, out_path)]
-        else:
-            return [NotProcessedTask(self.level1, out_path, msg)]
-
-    def output(self):
-        out_path = self.out_path
-        # TODO define the config items as a luigi parameter
-        out_fname = pjoin(out_path, CONFIG.get('gqa', 'gqa_output_format'))
-        return luigi.LocalTarget(out_fname)
-
-    def run(self):
-        work_directory = self.out_path + '-work'
-        # TODO define the config items as a luigi parameter
-        yaml_fname = CONFIG.get('gqa', 'gqa_output_format')
-        yaml_file = pjoin(work_directory, yaml_fname)
-        log_file = glob.glob(pjoin(work_directory, '*gverify.log'))[0]
-        log_fname = basename(log_file)
-
-        self.output().makedirs()
-        shutil.copy(yaml_file, pjoin(self.out_path, yaml_fname))
-        shutil.copy(log_file, pjoin(self.out_path, log_fname))
-
-        # cleanup the workspace
-        if CONFIG.getboolean('work', 'cleanup'):
-            _cleanup_workspace(work_directory)
 
 
 # TODO import this task into tesp
@@ -1056,15 +900,11 @@ class GQA(luigi.WrapperTask):
             for level1 in level1_list:
                 container = acquisitions(level1, self.acq_parser_hint)
                 for granule in container.granules:
-                # TODO enable updating dataset in-place
-                # if update_source:
-                #     yield UpdateSource(level1, work_root)
-                # else:
+                    # TODO enable updating dataset in-place
+                    # if update_source:
+                    #     yield UpdateSource(level1, work_root)
+                    # else:
                     yield GQATask(level1, granule, self.workdir)
 
         with open(self.level1_list) as src:
             return list(tasks([level1.strip() for level1 in src]))
-
-
-if __name__ == '__main__':
-    luigi.run()
