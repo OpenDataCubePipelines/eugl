@@ -89,7 +89,7 @@ def _fmask_landsat(acquisition, out_fname, work_dir):
         acquisition_path = tmp_dir
 
 
-    container = acquisitions(acquisition_path)
+    container = acquisitions(str(acquisition_path))
     # [-1] index Avoids panchromatic band
     # TODO: test OLI package
     acqs = sorted(
