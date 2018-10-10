@@ -74,7 +74,7 @@ def run_command(command, work_dir, timeout=None):
         _LOG.debug(stdout.decode('utf-8'))
 
 
-def _fmask_landsat(acquisition, out_fname, work_dir):
+def _landsat_fmask(acquisition, out_fname, work_dir):
     """
     Fmask algorithm for Landsat.
     """
@@ -88,10 +88,8 @@ def _fmask_landsat(acquisition, out_fname, work_dir):
 
         acquisition_path = tmp_dir
 
-
     container = acquisitions(str(acquisition_path))
     # [-1] index Avoids panchromatic band
-    # TODO: test OLI package
     acqs = sorted(
         container.get_acquisitions(group=container.groups[-1], only_supported_bands=False),
         key=lambda a: a.band_id
@@ -206,7 +204,7 @@ def fmask(dataset_path, granule, out_fname, outdir, acq_parser_hint=None):
             _sentinel2_fmask(dataset_path, container, granule, out_fname,
                              tmpdir)
         elif 'LANDSAT' in acq.platform_id:
-            _fmask_landsat(acq, out_fname, tmpdir)
+            _landsat_fmask(acq, out_fname, tmpdir)
         else:
             msg = "Sensor not supported"
             raise Exception(msg)
