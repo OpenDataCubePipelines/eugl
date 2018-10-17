@@ -572,7 +572,7 @@ def closest_match(folder, timestamp, band_id, sat_id):
     filenames = [
         name
         for name in os.listdir(folder)
-        if re.match(f'.*\\.tiff?$', name, re.IGNORECASE)
+        if re.match(r'.*\.tiff?$', name, re.IGNORECASE)
     ]
 
     if not filenames:
