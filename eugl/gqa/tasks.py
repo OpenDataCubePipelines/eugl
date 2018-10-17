@@ -146,15 +146,12 @@ class GverifyTask(luigi.Task):
                 collect_gcp(self.root_fix_qa_location, landsat_scenes, points_txt)
                 return ['-t', 'FIXED_LOCATION', '-t_file', points_txt]
 
-            def grid_extra_parameters():
-                return ['-g', self.grid_size]
-
             if acq_info.is_land_tile(self.ocean_tile_list):
                 location = acq_info.land_band()
                 # for sentinel-2 land tiles we prefer grid points
                 # rather than GCPs
                 if acq_info.preferred_gverify_method() == 'grid':
-                    extra = grid_extra_parameters()
+                    extra = ['-g', self.grid_size]
                 else:
                     extra = fixed_extra_parameters()
             else:
