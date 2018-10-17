@@ -38,7 +38,7 @@ def contiguity(fname, output):
     write_img(ones, output, cogtif=True, levels=[2, 4, 8, 16, 32],
               geobox=geobox, options=co_options)
 
-    return None
+    return ones
 
 
 @click.command(help=__doc__)
