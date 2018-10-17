@@ -2,6 +2,11 @@
 Acquisition info provides additional attributes to the Acquisition class
 defined in the wagl package required for quality assessment.
 """
+from datetime import timezone
+
+import fiona
+from shapely.geometry import Polygon, shape
+from rasterio.warp import Resampling
 
 from wagl.acquisition.sentinel import Sentinel2Acquisition
 
@@ -12,38 +17,162 @@ from wagl.acquisition.landsat import (
 )
 
 from wagl.constants import GroupName, DatasetName
+from eugl.gqa.geometric_utils import SLC_OFF
+
+DS_FMT = DatasetName.REFLECTANCE_FMT.value
+
+# TODO Need a better way to resolve resolution group for output bands?
 
 
-def get_land_ocean_bands(container, granule_id=None, product='NBAR'):
-    """get_landocean_bands: Returns the h5py keys for the land/ocean bands
+class AcquisitionInfo:
+    def __init__(self, container, granule, sample_acq):
+        self.container = container
+        self.granule = granule
+        self.sample_acq = sample_acq
 
-    :param container: container for the imagery
-    :param product: which product to reference
-    """
+    @property
+    def geobox(self):
+        return self.sample_acq.gridded_geo_box()
 
-    acq = container.get_all_acquisitions()[0]
-    ds_fmt = DatasetName.REFLECTANCE_FMT.value
+    @property
+    def timestamp(self):
+        return self.sample_acq.acquisition_datetime.replace(tzinfo=timezone.utc)
 
-    if not granule_id and len(container.granules) == 1:
-        granule_id = container.granules[0]
+    @property
+    def tag(self):
+        return self.sample_acq.tag
 
-    # TODO Need a better way to resolve resolution group for output bands
-    if issubclass(acq.__class__, Sentinel2Acquisition):
-        return {
-            'land_band': (
-                "{}/RES-GROUP-1/{}/".format(granule_id, GroupName.STANDARD_GROUP.value) +
-                ds_fmt.format(product=product, band_name='BAND-11')
-            ),
-            'ocean_band': (
-                "{}/RES-GROUP-1/{}/".format(granule_id, GroupName.STANDARD_GROUP.value) +
-                ds_fmt.format(product=product, band_name='BAND-2')
-            ),
-        }
-    elif issubclass(acq.__class__, Landsat5Acquisition):
-        raise NotImplementedError
-    elif issubclass(acq.__class__, Landsat7Acquisition):
-        raise NotImplementedError
-    elif issubclass(acq.__class__, Landsat8Acquisition):
-        raise NotImplementedError
+    def preferred_resampling_method(self):
+        return Resampling.bilinear
 
-    raise RuntimeError("Unknown acquisition type")
+
+class LandsatAcquisitionInfo(AcquisitionInfo):
+    @property
+    def path(self):
+        return int(self.granule[3:6])
+
+    @property
+    def row(self):
+        return int(self.granule[6:9])
+
+    def is_land_tile(self, ocean_tile_list):
+        path_row = '{},{}'.format(self.path, self.row)
+
+        with open(ocean_tile_list['Landsat']) as fl:
+            for line in fl:
+                if path_row == line.strip():
+                    return False
+
+        return True
+
+    def intersecting_landsat_scenes(self, landsat_scenes_shapefile):
+        return [dict(path=self.path, row=self.row)]
+
+    def preferred_gverify_method(self):
+        return 'fixed'
+
+
+class Landsat5AcquisitionInfo(LandsatAcquisitionInfo):
+    def land_band(self, product='NBAR'):
+        return "{}/RES-GROUP-0/{}/{}".format(self.granule,
+                                             GroupName.STANDARD_GROUP.value,
+                                             DS_FMT.format(product=product, band_name='BAND-5'))
+
+    def ocean_band(self, product='NBAR'):
+        ds_fmt = DatasetName.REFLECTANCE_FMT.value
+        return "{}/RES-GROUP-0/{}/{}".format(self.granule,
+                                             GroupName.STANDARD_GROUP.value,
+                                             DS_FMT.format(product=product, band_name='BAND-1'))
+
+
+class Landsat7AcquisitionInfo(LandsatAcquisitionInfo):
+    def land_band(self, product='NBAR'):
+        return "{}/RES-GROUP-1/{}/{}".format(self.granule,
+                                             GroupName.STANDARD_GROUP.value,
+                                             DS_FMT.format(product=product, band_name='BAND-5'))
+
+    def ocean_band(self, product='NBAR'):
+        return "{}/RES-GROUP-1/{}/{}".format(self.granule,
+                                             GroupName.STANDARD_GROUP.value,
+                                             DS_FMT.format(product=product, band_name='BAND-1'))
+
+    def preferred_resampling_method(self):
+        if self.timestamp >= SLC_OFF.replace(tzinfo=timezone.utc):
+            return Resampling.nearest
+
+        return Resampling.bilinear
+
+
+class Landsat8AcquisitionInfo(LandsatAcquisitionInfo):
+    def land_band(self, product='NBAR'):
+        return "{}/RES-GROUP-1/{}/{}".format(self.granule,
+                                             GroupName.STANDARD_GROUP.value,
+                                             DS_FMT.format(product=product, band_name='BAND-6'))
+
+    def ocean_band(self, product='NBAR'):
+        return "{}/RES-GROUP-1/{}/{}".format(self.granule,
+                                             GroupName.STANDARD_GROUP.value,
+                                             DS_FMT.format(product=product, band_name='BAND-2'))
+
+
+class Sentinel2AcquisitionInfo(AcquisitionInfo):
+    def land_band(self, product='NBAR'):
+        return "{}/RES-GROUP-1/{}/{}".format(self.granule,
+                                             GroupName.STANDARD_GROUP.value,
+                                             DS_FMT.format(product=product, band_name='BAND-11'))
+
+    def ocean_band(self, product='NBAR'):
+        return "{}/RES-GROUP-1/{}/{}".format(self.granule,
+                                             GroupName.STANDARD_GROUP.value,
+                                             DS_FMT.format(product=product, band_name='BAND-2'))
+
+    @property
+    def tile_id(self):
+        return self.granule.split('_')[-2][1:]
+
+    def is_land_tile(self, ocean_tile_list):
+        with open(ocean_tile_list['Sentinel-2']) as fl:
+            for line in fl:
+                if self.tile_id == line.strip():
+                    return False
+
+        return True
+
+    def intersecting_landsat_scenes(self, landsat_scenes_shapefile):
+        landsat_scenes = fiona.open(landsat_scenes_shapefile)
+
+        def path_row(properties):
+            return dict(path=int(properties['PATH']), row=int(properties['ROW']))
+
+        geobox = self.geobox
+        polygon = Polygon([geobox.ul_lonlat, geobox.ur_lonlat,
+                           geobox.lr_lonlat, geobox.ll_lonlat])
+
+        return [path_row(scene['properties'])
+                for scene in landsat_scenes
+                if shape(scene['geometry']).intersects(polygon)]
+
+    def preferred_gverify_method(self):
+        return 'grid'
+
+
+def acquisition_info(container, granule=None):
+    if granule is None:
+        if len(container.granules) == 1:
+            granule = container.granules[0]
+        else:
+            raise ValueError("granule not specified for a multi-granule container")
+
+    acqs, group = container.get_highest_resolution(granule)
+    acq = acqs[0]
+
+    if isinstance(acq, Sentinel2Acquisition):
+        return Sentinel2AcquisitionInfo(container, granule, acq)
+    elif isinstance(acq, Landsat5Acquisition):
+        return Landsat5AcquisitionInfo(container, granule, acq)
+    elif isinstance(acq, Landsat7Acquisition):
+        return Landsat7AcquisitionInfo(container, granule, acq)
+    elif isinstance(acq, Landsat8Acquisition):
+        return Landsat8AcquisitionInfo(container, granule, acq)
+    else:
+        raise ValueError("Unknown acquisition type")

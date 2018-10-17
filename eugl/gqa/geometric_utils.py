@@ -56,7 +56,7 @@ def _write_gqa_yaml(out_fname, data):
 _LOG = logging.getLogger(__name__)
 
 # Post SLC-OFF date
-SLC_OFF = datetime.date(2003, 6, 1)
+SLC_OFF = datetime.datetime(2003, 6, 1)
 
 # TODO only work with the latest naming convention provided in the MTL file
 # TODO replace the quick and dirty BAND_MAP that accounts for different sensors
