@@ -150,7 +150,7 @@ class GverifyTask(luigi.Task):
                 location = acq_info.land_band()
                 # for sentinel-2 land tiles we prefer grid points
                 # rather than GCPs
-                if acq_info.preferred_gverify_method() == 'grid':
+                if acq_info.preferred_gverify_method == 'grid':
                     extra = ['-g', self.grid_size]
                 else:
                     extra = fixed_extra_parameters()
@@ -188,7 +188,7 @@ class GverifyTask(luigi.Task):
             build_vrt(reference_imagery, vrt_file, workdir)
 
             self._run_gverify(vrt_file, source_band, outdir=workdir, extra=extra,
-                              resampling=acq_info.preferred_resampling_method())
+                              resampling=acq_info.preferred_resampling_method)
         except (ValueError, FileNotFoundError, CommandError) as ve:
             error_msg = str(ve)
             ERROR_LOGGER.error('gverify was not executed because:\n {}'.format(error_msg))

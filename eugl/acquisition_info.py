@@ -42,6 +42,7 @@ class AcquisitionInfo:
     def tag(self):
         return self.sample_acq.tag
 
+    @property
     def preferred_resampling_method(self):
         return Resampling.bilinear
 
@@ -68,6 +69,7 @@ class LandsatAcquisitionInfo(AcquisitionInfo):
     def intersecting_landsat_scenes(self, landsat_scenes_shapefile):
         return [dict(path=self.path, row=self.row)]
 
+    @property
     def preferred_gverify_method(self):
         return 'fixed'
 
@@ -96,6 +98,7 @@ class Landsat7AcquisitionInfo(LandsatAcquisitionInfo):
                                              GroupName.STANDARD_GROUP.value,
                                              DS_FMT.format(product=product, band_name='BAND-1'))
 
+    @property
     def preferred_resampling_method(self):
         if self.timestamp >= SLC_OFF.replace(tzinfo=timezone.utc):
             return Resampling.nearest
@@ -152,6 +155,7 @@ class Sentinel2AcquisitionInfo(AcquisitionInfo):
                 for scene in landsat_scenes
                 if shape(scene['geometry']).intersects(polygon)]
 
+    @property
     def preferred_gverify_method(self):
         return 'grid'
 
