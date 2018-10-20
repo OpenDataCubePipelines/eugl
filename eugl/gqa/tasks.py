@@ -228,7 +228,7 @@ class GverifyTask(luigi.Task):
                    '-r', resampling_method[resampling],
                    '-cs', str(self.chip_size)]
 
-        cmd = ['bash', '-c', "'{}'".format(' '.join(chain(wrapper, gverify, extra)))]
+        cmd = [' '.join(chain(wrapper, gverify, extra))]
 
         _LOG.debug('calling gverify {}'.format(' '.join(cmd)))
         run_command(cmd, outdir, timeout=self.timeout)
