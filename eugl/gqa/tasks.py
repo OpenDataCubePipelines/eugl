@@ -70,6 +70,7 @@ _LOG = wrap_logger(logging.getLogger(__name__),
 
 
 class GverifyTask(luigi.Task):
+
     # Imagery arguments
     level1 = luigi.Parameter()
     acq_parser_hint = luigi.OptionalParameter(default='')
@@ -184,7 +185,6 @@ class GverifyTask(luigi.Task):
             reference_resolution = [abs(x) for x in most_common(reference_imagery).resolution]
 
             vrt_file = pjoin(workdir, 'reference.vrt')
-            # TODO ensure correct resampling method
             build_vrt(reference_imagery, vrt_file, workdir)
 
             self._run_gverify(vrt_file, source_band, outdir=workdir, extra=extra,

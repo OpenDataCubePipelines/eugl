@@ -9,6 +9,7 @@ from __future__ import absolute_import
 import os
 from os.path import join as pjoin, abspath, basename, dirname, exists
 import subprocess
+import signal
 import tempfile
 import logging
 
@@ -49,6 +50,7 @@ def run_command(command, work_dir, timeout=None):
         ' '.join(command),
         stderr=subprocess.PIPE,
         stdout=subprocess.PIPE,
+        preexec_fn=os.setsid,
         shell=True,
         cwd=str(work_dir)
     )
@@ -56,12 +58,13 @@ def run_command(command, work_dir, timeout=None):
     timed_out = False
 
     try:
-        _proc.wait(timeout=timeout)
+        stdout, stderr = _proc.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
-        _proc.kill()
+        # see https://stackoverflow.com/questions/36952245/subprocess-timeout-failure
+        os.killpg(os.getpgid(_proc.pid), signal.SIGTERM)
+        stdout, stderr = _proc.communicate()
         timed_out = True
 
-    stdout, stderr = _proc.communicate()
     if _proc.returncode != 0:
         _LOG.error(stderr.decode('utf-8'))
         _LOG.info(stdout.decode('utf-8'))
