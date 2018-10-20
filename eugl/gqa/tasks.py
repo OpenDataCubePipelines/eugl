@@ -585,7 +585,7 @@ def closest_match(folder, timestamp, band_id, sat_id):
 
         df = df.append({"filename": filename, "diff": diff}, ignore_index=True)
 
-    closest = df.loc[df['diff'].argmin()]
+    closest = df.loc[df['diff'].idxmin()]
     return [pjoin(folder, closest['filename'])]
 
 
