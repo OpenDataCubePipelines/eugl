@@ -281,7 +281,7 @@ class GQATask(luigi.Task):
             gverify_args = yaml.load(_md)
 
         try:
-            if 'error_msg' not in gverify_args:  # Gverify successfully ran
+            if 'error_msg' not in gverify_args or gverify_args['error_msg'] == '':  # Gverify successfully ran
                 rh, tr, df = parse_gverify(self.input()['results'].path)
                 res = calculate_gqa(df, tr, gverify_args['ref_resolution'], self.standard_deviations,
                                     self.iterations, self.correlation_coefficient)
