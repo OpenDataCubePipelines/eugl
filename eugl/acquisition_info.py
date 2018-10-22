@@ -125,7 +125,7 @@ class Sentinel2AcquisitionInfo(AcquisitionInfo):
                                              DS_FMT.format(product=product, band_name='BAND-11'))
 
     def ocean_band(self, product='NBAR'):
-        return "{}/RES-GROUP-1/{}/{}".format(self.granule,
+        return "{}/RES-GROUP-0/{}/{}".format(self.granule,
                                              GroupName.STANDARD_GROUP.value,
                                              DS_FMT.format(product=product, band_name='BAND-2'))
 
