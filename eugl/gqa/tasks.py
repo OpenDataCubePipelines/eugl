@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-QGA Workflow
+GQA Workflow
 -------------
 
 Workflow settings can be configured in `luigi.cfg` file.
@@ -33,7 +33,6 @@ import pandas
 import rasterio
 from rasterio.warp import Resampling
 from pathlib import Path
-from shapely.geometry import Polygon, shape
 import fiona
 import h5py
 import yaml
@@ -45,7 +44,7 @@ from wagl.logging import ERROR_LOGGER
 from wagl.singlefile_workflow import DataStandardisation
 
 from eugl.fmask import run_command, CommandError
-from eugl.acquisition_info import get_land_ocean_bands
+from eugl.acquisition_info import acquisition_info
 from eugl.metadata import get_gqa_metadata
 
 from eugl.gqa.geometric_utils import (
@@ -63,21 +62,8 @@ from eodatasets.verify import PackageChecksum
 
 write_yaml = partial(yaml.safe_dump, default_flow_style=False, indent=4)
 
-# TODO general luigi task cleanup
-#      see wagl.singlefile_workflow or wagl.multifile_workflow or tesp.workflow
-#      for better and cleaner examples of luigi construction
-
-# TODO remove these two .csv files from this tree, and find a permanent home for them
-# TODO do not forget about the Landsat ocean list
-REEF_PR = resource_filename('eugl.gqa', 'ocean_list.csv')
-
 _LOG = wrap_logger(logging.getLogger(__name__),
                    processors=[JSONRenderer(indent=1, sort_keys=True)])
-
-# TODO functionally parse the parameters in the cfg at the task level
-# rather than find and read the internal cfg.
-# Similar to how wagl and tesp do it
-CONFIG = luigi.configuration.get_config()
 
 # TODO variable change; scene id is landsat specific, level1 is more generic
 # TODO remove refs to l1t (landsat specific)
@@ -107,7 +93,7 @@ class GverifyTask(luigi.Task):
 
     # Gverify Argument preparation
     landsat_scenes_shapefile = luigi.Parameter()
-    ocean_tile_list = luigi.Parameter()
+    ocean_tile_list = luigi.DictParameter()
     root_fix_qa_location = luigi.Parameter()
     reference_directory = luigi.Parameter()
     backup_reference_directory = luigi.Parameter()
@@ -123,7 +109,7 @@ class GverifyTask(luigi.Task):
 
         return {
             'runtime_args': luigi.LocalTarget(pjoin(workdir, self._args_file)),
-            'results': luigi.LocalTarget(pjoin(workdir, self._gverify_results)),
+            'results': luigi.LocalTarget(pjoin(workdir, self._gverify_results))
         }
 
     def exists(self):
@@ -143,9 +129,7 @@ class GverifyTask(luigi.Task):
             .get_granule(self.granule, container=True)
         )
 
-        first_acq = container.get_acquisitions()[0]
-        geobox = first_acq.gridded_geo_box()
-        timestamp = first_acq.acquisition_datetime
+        acq_info = acquisition_info(container, self.granule)
 
         # Initialise output variables for error case
         error_msg = ''
@@ -154,40 +138,46 @@ class GverifyTask(luigi.Task):
         reference_resolution = ''
 
         try:
-            # retrieve a set of matching landsat scenes based on polygons
-            landsat_scenes = intersecting_landsat_scenes(
-                geobox_to_polygon(geobox),
-                self.landsat_scenes_shapefile
-            )
+            # retrieve a set of matching landsat scenes
+            # lookup is based on polygon for Sentinel-2
+            landsat_scenes = acq_info.intersecting_landsat_scenes(self.landsat_scenes_shapefile)
 
-            if is_land_tile(self.granule, self.ocean_tile_list):
-                location = get_land_ocean_bands(container)['land_band']
-                extra = ['-g', self.grid_size]
-            else:
-                location = get_land_ocean_bands(container)['ocean_band']
+            def fixed_extra_parameters():
                 points_txt = pjoin(workdir, 'points.txt')
                 collect_gcp(self.root_fix_qa_location, landsat_scenes, points_txt)
-                extra = ['-t', 'FIXED_LOCATION', '-t_file', points_txt]
+                return ['-t', 'FIXED_LOCATION', '-t_file', points_txt]
+
+            if acq_info.is_land_tile(self.ocean_tile_list):
+                location = acq_info.land_band()
+                # for sentinel-2 land tiles we prefer grid points
+                # rather than GCPs
+                if acq_info.preferred_gverify_method == 'grid':
+                    extra = ['-g', self.grid_size]
+                else:
+                    extra = fixed_extra_parameters()
+            else:
+                # for sea tiles we always pick GCPs
+                location = acq_info.ocean_band()
+                extra = fixed_extra_parameters()
 
             # Extract the source band from the results archive
             with h5py.File(self.input()[0].path, 'r') as h5:
-
                 band_id = h5[location].attrs['band_id']
                 source_band = pjoin(workdir, 'source.tif')
                 source_image = h5[location][:]
                 source_image[source_image == -999] = 0
-                write_img(source_image, source_band, geobox=geobox, nodata=0,
+                write_img(source_image, source_band, geobox=acq_info.geobox, nodata=0,
                           options={'compression': 'deflate', 'zlevel': 1})
 
             # returns a reference image from one of ls5/7/8
             #  the gqa band id will differ depending on if the source image is 5/7/8
             reference_imagery = get_reference_imagery(
-                landsat_scenes, timestamp, band_id, first_acq.tag,
+                landsat_scenes, acq_info.timestamp, band_id, acq_info.tag,
                 [self.reference_directory, self.backup_reference_directory]
             )
 
             ref_date = get_reference_date(
-                basename(reference_imagery[0].filename), band_id, first_acq.tag
+                basename(reference_imagery[0].filename), band_id, acq_info.tag
             )
             ref_source_path = reference_imagery[0].filename
 
@@ -197,7 +187,8 @@ class GverifyTask(luigi.Task):
             vrt_file = pjoin(workdir, 'reference.vrt')
             build_vrt(reference_imagery, vrt_file, workdir)
 
-            self._run_gverify(vrt_file, source_band, outdir=workdir, extra=extra)
+            self._run_gverify(vrt_file, source_band, outdir=workdir, extra=extra,
+                              resampling=acq_info.preferred_resampling_method)
         except (ValueError, FileNotFoundError, CommandError) as ve:
             error_msg = str(ve)
             ERROR_LOGGER.error('gverify was not executed because:\n {}'.format(error_msg))
@@ -213,11 +204,15 @@ class GverifyTask(luigi.Task):
             }
             with self.output()['runtime_args'].open('w') as fd:
                 write_yaml(run_args, fd)
+            # if gverify failed to product the .res file writ out a blank one
+            if not exists(self.output()['results'].path):
+                with self.output()['results'].open('w') as fd:
+                    pass
 
     def _run_gverify(self, reference, source, outdir, extra=None,
                      resampling=Resampling.bilinear):
 
-        resampling_method = {0: 'NN', 1: 'BI', 2: 'CI'}
+        resampling_method = {Resampling.nearest: 'NN', Resampling.bilinear: 'BI', Resampling.cubic: 'CI'}
         extra = extra or []  # Default to empty list
 
         wrapper = [f'export LD_LIBRARY_PATH={self.ld_library_path}:$LD_LIBRARY_PATH; ',
@@ -237,17 +232,15 @@ class GverifyTask(luigi.Task):
                    '-r', resampling_method[resampling],
                    '-cs', str(self.chip_size)]
 
-        cmd = ['bash', '-c', "'{}'".format(' '.join(chain(wrapper, gverify, extra)))]
+        cmd = [' '.join(chain(wrapper, gverify, extra))]
 
         _LOG.debug('calling gverify {}'.format(' '.join(cmd)))
-        run_command(cmd, outdir, timeout=self.timeout)
+        run_command(cmd, outdir, timeout=self.timeout, command_name='gverify')
 
 
 class GQATask(luigi.Task):
     """
-    Calculate GQA for a single (Sentinel-2) granule.
-    TODO: Landsat compatibility.
-    TODO: Modularity.
+    Calculate Geometric Quality Assessment for a granule.
     """
 
     level1 = luigi.Parameter()
@@ -292,7 +285,7 @@ class GQATask(luigi.Task):
             gverify_args = yaml.load(_md)
 
         try:
-            if 'error_msg' not in gverify_args:  # Gverify successfully ran
+            if 'error_msg' not in gverify_args or gverify_args['error_msg'] == '':  # Gverify successfully ran
                 rh, tr, df = parse_gverify(self.input()['results'].path)
                 res = calculate_gqa(df, tr, gverify_args['ref_resolution'], self.standard_deviations,
                                     self.iterations, self.correlation_coefficient)
@@ -348,7 +341,7 @@ def collect_gcp(fix_location, landsat_scenes, result_file):
         for scene in landsat_scenes:
             path = '{0:0=3d}'.format(scene['path'])
             row = '{0:0=3d}'.format(scene['row'])
-            _LOG.debug('collecting GPCs from {} {}'.format(path, row))
+            _LOG.debug('collecting GCPs from {} {}'.format(path, row))
             scene_gcp_file = pjoin(fix_location, path, row, 'points.txt')
             with open(scene_gcp_file) as src:
                 for l in src:
@@ -490,33 +483,6 @@ def build_vrt(reference_images, out_file, work_dir):
     run_command(command, work_dir)
 
 
-def is_land_tile(granule, ocean_tile_list):
-    tile_id = granule.split('_')[-2][1:]
-
-    with open(ocean_tile_list) as fl:
-        for line in fl:
-            if tile_id == line.strip():
-                return False
-
-    return True
-
-
-def geobox_to_polygon(geobox):
-    return Polygon([geobox.ul_lonlat, geobox.ur_lonlat,
-                    geobox.lr_lonlat, geobox.ll_lonlat])
-
-
-def intersecting_landsat_scenes(dataset_polygon, landsat_scenes_shapefile):
-    landsat_scenes = fiona.open(landsat_scenes_shapefile)
-
-    def path_row(properties):
-        return dict(path=int(properties['PATH']), row=int(properties['ROW']))
-
-    return [path_row(scene['properties'])
-            for scene in landsat_scenes
-            if shape(scene['geometry']).intersects(dataset_polygon)]
-
-
 def get_reference_imagery(path_rows, timestamp, band_id, sat_id, reference_directories):
     australian = [
         entry
@@ -607,7 +573,7 @@ def closest_match(folder, timestamp, band_id, sat_id):
     filenames = [
         name
         for name in os.listdir(folder)
-        if re.match(f'.*\.tiff?$', name, re.IGNORECASE)
+        if re.match(r'.*\.tiff?$', name, re.IGNORECASE)
     ]
 
     if not filenames:
@@ -623,7 +589,7 @@ def closest_match(folder, timestamp, band_id, sat_id):
 
         df = df.append({"filename": filename, "diff": diff}, ignore_index=True)
 
-    closest = df.loc[df['diff'].argmin()]
+    closest = df.loc[df['diff'].idxmin()]
     return [pjoin(folder, closest['filename'])]
 
 
@@ -697,6 +663,7 @@ def get_acquisition(l1t_path, granule):
 
 def get_acq_reference_directory(acq):
     # TODO a sensor agnostic method of retrieving the reference imagery
+    # currently all our reference imagery is from Landsat
     scene_name = basename(dirname(acq.dir_name))
     landsat_path = int(acq.path)
     landsat_row = int(acq.row)
