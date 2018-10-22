@@ -109,7 +109,7 @@ class GverifyTask(luigi.Task):
 
         return {
             'runtime_args': luigi.LocalTarget(pjoin(workdir, self._args_file)),
-            'results': luigi.LocalTarget(pjoin(workdir, self._gverify_results)),
+            'results': luigi.LocalTarget(pjoin(workdir, self._gverify_results))
         }
 
     def exists(self):
@@ -204,6 +204,10 @@ class GverifyTask(luigi.Task):
             }
             with self.output()['runtime_args'].open('w') as fd:
                 write_yaml(run_args, fd)
+            # if gverify failed to product the .res file writ out a blank one
+            if not exists(self.output()['results'].path):
+                with self.output()['results'].open('w') as fd:
+                    pass
 
     def _run_gverify(self, reference, source, outdir, extra=None,
                      resampling=Resampling.bilinear):
@@ -231,7 +235,7 @@ class GverifyTask(luigi.Task):
         cmd = [' '.join(chain(wrapper, gverify, extra))]
 
         _LOG.debug('calling gverify {}'.format(' '.join(cmd)))
-        run_command(cmd, outdir, timeout=self.timeout)
+        run_command(cmd, outdir, timeout=self.timeout, command_name='gverify')
 
 
 class GQATask(luigi.Task):
