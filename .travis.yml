@@ -1,0 +1,23 @@
+---
+language: python
+python:
+- '3.6'
+cache:
+  pip: true
+before_install:
+- pip install --upgrade pip
+script:
+- echo "SKIP"
+before_deploy:
+- python setup.py sdist
+deploy:
+  provider: releases
+  file_glob: true
+  file: dist/*
+  skip_cleanup: true
+  on:
+    tags: true
+    condition: "$TRAVIS_TAG =~ ^eugl-[0-9]+\\.[0-9]+\\.[0-9]+$"
+    repo: OpenDataCubePipelines/eugl
+  api-key:
+    secure: CrzdYKCrpbUdTOp8/Bov7uDGcATeSLpg/Ns2C4FiPzCoOBmtR6QCKjmJ450retLQMDYIhUQ+Gn3jFofRI+QoMqXIVPGIug0TjjYMprghPQ2yj/JU/rjswkMpahuPZc6oHCWld8dGBSsUCISVlUihXqOZ4g9bRAyydA5yOO50qwVSHjB5WJQQEuqw4uSmy6QKuNnXMuUd0sJ2VmzSDJ7uY71LKPglFqXBGIJbuMTC9jXL50NxJJjd/ejqk7mWIFeYKZ5brCOwRZ82NUIF1/9w+HXO/jefnT7CzegTjq9GUn6Lkn7Mg/dv5iN+lXduKh8QWlONrikUUTnGPykBVjyPiE5KoEOqUZC91gartmNZSO3QA+klRgQSWg6Gvg8goFeQxhQQ2WgD8bSW/YH/858XoLdSN8yVYHqfD/ttmeDKAHFLWIYeizg5SdaJXL1jM9nyDFEHaUdd9EvfzWA2qc3NZXcdiDK4MoUVEbxuOjFgAzVQSslgYs4c60RCRHspR+mtPxEcyhdN75ATp35ukG/xHXah4iZEKwVbOnyWSYYGYcFYvNZf3lM4ggyovIWT+jRRqxJSOuQyC0ln4Hu5cQm+oCPo799rJYIxSvv2AeHzvDfiaAQLHcg0ne/JJGmTuYtR5/+j2S6akjSYWjAyebJChyxUOCzI5uwl4Y8vZc7JBMw=
