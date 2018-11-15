@@ -22,6 +22,7 @@ from eugl.version import __version__
 def _rounded(d):
     return round(float(d), 2)
 
+
 def _populate_nan_residuals():
     empty_points = {'x': pandas.np.nan,
                     'y': pandas.np.nan,
@@ -37,6 +38,7 @@ def _populate_nan_residuals():
 
     return residuals
 
+
 def _gls_version(ref_fname):
     # TODO a more appropriate method of version detection and/or population of metadata
     if 'GLS2000_GCP_SCENE' in ref_fname:
@@ -45,6 +47,7 @@ def _gls_version(ref_fname):
         gls_version = 'GQA_v3'
 
     return gls_version
+
 
 def _write_gqa_yaml(out_fname, data):
     _LOG.debug('Writing result yaml: %s', out_fname)
@@ -442,8 +445,8 @@ def get_reference_data(acquisition, base_reference_dir):
     # initialise a dataframe
     df = pandas.DataFrame(columns=["ref_fname", "date"])
 
-    ptrn = ("(?P<sat>[A-Z, 0-9]{3})(?P<pr>[0-9]{6})(?P<date>[0-9]{7})"
-            "(?P<stuff>\w+?_)(?P<band>\w+)")
+    ptrn = (r"(?P<sat>[A-Z, 0-9]{3})(?P<pr>[0-9]{6})(?P<date>[0-9]{7})"
+            r"(?P<stuff>\w+?_)(?P<band>\w+)")
     match = re.match(ptrn, ref_imgs[0])
     if match is not None:
         # we have a hit and can assume that we are dealing with ref imagery
