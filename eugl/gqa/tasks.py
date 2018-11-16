@@ -298,7 +298,7 @@ class GQATask(luigi.Task):
             else:
                 _LOG.debug('Writing NaNs for residuals; gverify failed to run')
                 res = {
-                    'final_qa_count': 0,
+                    'final_gcp_count': 0,
                     'residual': _populate_nan_residuals(),
                     'error_message': gverify_args['error_msg']
                 }
@@ -311,7 +311,7 @@ class GQATask(luigi.Task):
 
             _LOG.debug('Defaulting to NaN for the residual values.')
             res = {
-                'final_qa_count': 0,
+                'final_gcp_count': 0,
                 'residual': _populate_nan_residuals(),
                 'error_message': "No GCP's were found"
             }
@@ -421,15 +421,9 @@ def calculate_gqa(df, tr, resolution, stddev=1.0, iterations=1, correl=0.75):
     def _point(stat):
         return {key: _rounded(value) for key, value in stat.items()}
 
-    if int(subset.shape[0]) == 0:
-        error_message = 'no errors; no QA points can be matched'
-        abs_ = abs_mean  # since abs_mean is correctly NaN
-    else:
-        error_message = 'no errors'
-
     return {
-        'final_qa_count': int(subset.shape[0]),
-        'error_message': error_message,
+        'final_gcp_count': int(subset.shape[0]),
+        'error_message': 'no errors',
         'residual': {
             'mean': _point(original['mean']),
             'stddev': _point(original['stddev']),
