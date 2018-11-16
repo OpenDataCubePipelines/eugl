@@ -133,6 +133,7 @@ def _landsat_fmask(acquisition, out_fname, work_dir):
            '-z', angles_fname, '-o', toa_fname]
     run_command(cmd, work_dir)
 
+
     cmd = ['gdal_merge.py', '-separate', '-of', 'HFA', '-co', 'COMPRESSED=YES',
            '-o', thm_fname, *thermal_bands]
     run_command(cmd, acquisition_path)
