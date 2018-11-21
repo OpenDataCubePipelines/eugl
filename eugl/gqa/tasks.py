@@ -40,9 +40,7 @@ import yaml
 from wagl.data import write_img
 from wagl.acquisition import acquisitions
 from wagl.constants import BandType
-from wagl.logging import ERROR_LOGGER
 from wagl.singlefile_workflow import DataStandardisation
-
 from eugl.fmask import run_command, CommandError
 from eugl.acquisition_info import acquisition_info
 from eugl.metadata import get_gqa_metadata
@@ -59,6 +57,8 @@ from eodatasets.serialise import read_yaml_metadata
 from eodatasets.serialise import write_yaml_metadata
 from eodatasets.verify import PackageChecksum
 
+ERROR_LOGGER = wrap_logger(logging.getLogger('errors'),
+                           processors=[JSONRenderer(indent=1, sort_keys=True)])
 
 write_yaml = partial(yaml.safe_dump, default_flow_style=False, indent=4)
 
