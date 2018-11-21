@@ -216,22 +216,74 @@ def fmask(dataset_path, granule, out_fname, outdir, acq_parser_hint=None):
             raise Exception(msg)
 
 
-def fmask_cogtif(fname, out_fname):
+def fmask_cogtif(fname, out_fname, platform):
     """
     Convert the standard fmask output to a cloud optimised geotif.
     """
-    command = ["gdal_translate",
-               "-of",
-               "GTiff",
-               "-co",
-               "COMPRESS=DEFLATE",
-               "-co",
-               "ZLEVEL=4",
-               "-co",
-               "PREDICTOR=2",
-               "-co",
-               "COPY_SRC_OVERVIEWS=YES",
-               fname,
-               out_fname]
 
-    run_command(command, dirname(fname))
+    with tempfile.TemporaryDirectory(dir=dirname(fname),
+                                     prefix='cogtif-') as tmpdir:
+
+        # set the platform specific options for gdal function
+
+        # setting the fmask's overview block size depending on the specific sensor.
+        # Current, only USGS dataset are tiled at 512 x 512 for standardizing
+        # Level 2 ARD products. Sentinel-2 tile size are inherited from the
+        # L1C products and its overview's blocksize are default value of GDAL's
+        # overview block size of 128 x 128
+
+        # TODO Standardizing the Sentinel-2's overview tile size with external inputs
+
+        if platform == "LANDSAT":
+            options = {'compress': 'deflate',
+                       'zlevel': 4,
+                       'blockxsize': 512,
+                       'blockysize': 512}
+
+            config_options = {'GDAL_TIFF_OVR_BLOCKSIZE': blockxsize}
+        else:
+            options = {'compress': 'deflate',
+                       'zlevel': 4}
+
+            config_options = None
+
+        #clean all previous overviews
+        command = ["gdaladdo",
+                   "-clean",
+                   fname]
+        run_command(command, tmpdir)
+
+        # build new overviews/pyramids consistent with NBAR/NBART products
+        # the overviews are built with 'mode' re-sampling method
+        cmd = ['gdaladdo',
+               '-r',
+               'mode',
+               fname,
+               '2',
+               '4',
+               '8',
+               '16',
+               '32']
+        run_command(cmd, tmpdir)
+
+        # create the cogtif
+        command = ["gdal_translate",
+                   "-of",
+                   "GTiff",
+                   "-co",
+                   "TILED=YES",
+                   "-co",
+                   "PREDICTOR=2",
+                   "-co",
+                   "COPY_SRC_OVERVIEWS=YES"]
+
+        for key, value in options.items():
+            command.extend(['-co', '{}={}'.format(key, value)])
+
+        if config_options:
+            for key, value in config_options.items():
+                command.extend(['--config', '{}'.format(key), '{}'.format(value)])
+
+        command.extend([fname, out_fname])
+
+        run_command(command, dirname(fname))
