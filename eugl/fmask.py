@@ -246,7 +246,7 @@ def fmask_cogtif(fname, out_fname, platform):
 
             config_options = None
 
-        #clean all previous overviews
+        # clean all previous overviews
         command = ["gdaladdo",
                    "-clean",
                    fname]

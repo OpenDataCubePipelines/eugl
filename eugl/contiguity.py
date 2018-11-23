@@ -37,7 +37,7 @@ def contiguity(fname, output, platform):
     # L1C products and its overview's blocksize are default value of GDAL's
     # overview block size of 128 x 128
 
-    #TODO Standardizing the Sentinel-2's overview tile size with external inputs
+    # TODO Standardizing the Sentinel-2's overview tile size with external inputs
 
     if platform == "LANDSAT":
         blockxsize = 512
