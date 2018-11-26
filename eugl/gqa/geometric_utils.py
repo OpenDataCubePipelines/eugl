@@ -411,5 +411,5 @@ def reproject(source_fname, reference_fname, out_fname,
            source_fname,
            out_fname]
 
-    _LOG.info('calling gdalwarp:\n {}'.format(cmd))
+    _LOG.info('calling gdalwarp:\n%s', cmd)
     subprocess.check_call(cmd)

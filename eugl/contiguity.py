@@ -75,6 +75,8 @@ def main(output, datasets):
         path = dataset
         stem = Path(path).stem
         out = os.path.join(output, stem)
-        contiguity = out+".CONTIGUITY.TIF"
-        logging.info("Create contiguity image " + contiguity)
-        contiguity(path, contiguity)
+        contiguity_img = out + ".CONTIGUITY.TIF"
+        logging.info("Create contiguity image %s", contiguity_img)
+
+        # TODO needs platform to be passed too
+        contiguity(path, contiguity_img)
