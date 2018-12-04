@@ -37,7 +37,7 @@ def contiguity(fname, output, platform):
     # L1C products and its overview's blocksize are default value of GDAL's
     # overview block size of 128 x 128
 
-    #TODO Standardizing the Sentinel-2's overview tile size with external inputs
+    # TODO Standardizing the Sentinel-2's overview tile size with external inputs
 
     if platform == "LANDSAT":
         blockxsize = 512
@@ -75,6 +75,8 @@ def main(output, datasets):
         path = dataset
         stem = Path(path).stem
         out = os.path.join(output, stem)
-        contiguity = out+".CONTIGUITY.TIF"
-        logging.info("Create contiguity image " + contiguity)
-        contiguity(path, contiguity)
+        contiguity_img = out + ".CONTIGUITY.TIF"
+        logging.info("Create contiguity image %s", contiguity_img)
+
+        # TODO needs platform to be passed too
+        contiguity(path, contiguity_img)
