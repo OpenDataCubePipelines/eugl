@@ -65,7 +65,8 @@ def contiguity(fname, output, platform):
 @click.argument('datasets',
                 type=click.Path(exists=True, readable=True, writable=False),
                 nargs=-1)
-def main(output, datasets):
+@click.option('--platform', help=" Sensor platform where dataset is source from.', default=None)
+def main(output, datasets, platform):
     """
     For input 'vrt' generate Contiguity
     outputs and write to the destination path specified by 'output'
@@ -77,6 +78,4 @@ def main(output, datasets):
         out = os.path.join(output, stem)
         contiguity_img = out + ".CONTIGUITY.TIF"
         logging.info("Create contiguity image %s", contiguity_img)
-
-        # TODO needs platform to be passed too
-        contiguity(path, contiguity_img)
+        contiguity(path, contiguity_img, plaform)
