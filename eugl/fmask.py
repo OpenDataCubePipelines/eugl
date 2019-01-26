@@ -111,6 +111,11 @@ def _landsat_fmask(acquisition, out_fname, work_dir):
     reflective_bands = [acq.uri for acq in acqs if acq.band_type is BandType.REFLECTIVE]
     thermal_bands = [acq.uri for acq in acqs if acq.band_type is BandType.THERMAL]
 
+    if not thermal_bands:
+        raise NotImplementedError(
+            "python-fmask requires thermal bands to process landsat imagery"
+        )
+
     # copy the mtl to the work space
     mtl_fname = str(list(acquisition_path.rglob('*_MTL.txt'))[0])
 

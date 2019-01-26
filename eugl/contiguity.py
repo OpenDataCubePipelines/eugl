@@ -65,7 +65,7 @@ def contiguity(fname, output, platform):
 @click.argument('datasets',
                 type=click.Path(exists=True, readable=True, writable=False),
                 nargs=-1)
-@click.option('--platform', help=" Sensor platform where dataset is source from.', default=None)
+@click.option('--platform', help=" Sensor platform where dataset is source from.", default=None)
 def main(output, datasets, platform):
     """
     For input 'vrt' generate Contiguity
