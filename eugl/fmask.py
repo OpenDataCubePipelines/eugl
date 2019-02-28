@@ -89,7 +89,7 @@ def _landsat_fmask(acquisition, out_fname, work_dir):
         tmp_dir = Path(work_dir) / 'fmask_imagery'
         if not tmp_dir.is_dir():
             tmp_dir.mkdir()
-        cmd = ['tar', 'zxvf', str(acquisition_path)]
+        cmd = ['tar', 'zxvf' if acquisition_path.suffix == '.gz' else 'xvf', str(acquisition_path)]
         run_command(cmd, tmp_dir)
 
         acquisition_path = tmp_dir
