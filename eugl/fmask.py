@@ -204,8 +204,7 @@ def _sentinel2_fmask(dataset_path, container, granule, out_fname, work_dir,
     cmd = ["fmask_sentinel2Stacked.py", "-a", vrt_fname, "-z", angles_fname,
            "-o", out_fname,
            "--cloudbufferdistance", str(cloud_buffer_distance),
-           "--shadowbufferdistance", str(cloud_shadow_buffer_distance),
-           "--parallaxtest"]
+           "--shadowbufferdistance", str(cloud_shadow_buffer_distance)]
 
     if parallax_test:
         cmd.extend("--parallaxtest")
