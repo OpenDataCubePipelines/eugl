@@ -141,7 +141,9 @@ def _fmask_landsat(acquisition, out_fname, work_dir):
     # fmask
     cmd = ['fmask_usgsLandsatStacked.py', '-t', thm_fname, '-a', toa_fname,
            '-m', mtl_fname, '-z', angles_fname, '-s', mask_fname,
-           '-o', out_fname]
+           '-o', out_fname,
+           '--cloudbufferdistance', '0',
+           '--shadowbufferdistance', '0']
     run_command(cmd, work_dir)
 
 
@@ -194,7 +196,10 @@ def _sentinel2_fmask(dataset_path, container, granule, out_fname, work_dir):
 
     # run fmask
     cmd = ["fmask_sentinel2Stacked.py", "-a", vrt_fname, "-z", angles_fname,
-           "-o", out_fname]
+           "-o", out_fname,
+           "--cloudbufferdistance", "0",
+           "--shadowbufferdistance", "0",
+           "--parallaxtest"]
     run_command(cmd, work_dir)
 
 
