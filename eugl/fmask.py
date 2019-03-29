@@ -212,45 +212,52 @@ def _sentinel2_fmask(dataset_path, container, granule, out_fname, work_dir,
     run_command(cmd, work_dir)
 
 
-def fmask(dataset_path, granule, out_fname, outdir, acq_parser_hint=None,
+def fmask(dataset_path, granule, out_fname, workdir, acq_parser_hint=None,
           cloud_buffer_distance=150.0, cloud_shadow_buffer_distance=300.0,
           parallax_test=False):
     """
     Execute the fmask process.
 
     :param dataset_path:
-    :type str:
         A str containing the full file pathname to the dataset.
+        The dataset can be either a directory or a file, and
+        interpretable by wagl.acquisitions.
+    :type dataset_path: str
 
     :param granule:
-    :type str:
         A str containing the granule name. This will is used to
         selectively process a given granule.
+    :type granule: str
 
     :param out_fname:
-    :type str:
         A str containing the full file pathname to contain the
         output file.
+    :type out_fname: str
+
+    :param workdir:
+        A str containing a pathname to a directory that can be
+        used as scratch space for fmask processing.
+    :type workdir: str
 
     :param acq_parser_hint:
-        A hinting helper for the acquisitions parser.
+        A hinting helper for the acquisitions parser. Default is None.
 
     :param cloud_buffer_distance:
-    :type float:
         Distance (in metres) to buffer final cloud objects. Default
         is 150m.
+    :type cloud_buffer_distance: float
 
     :param cloud_shadow_buffer_distance:
-    :type float:
         Distance (in metres) to buffer final cloud shadow objects.
         Default is 300m.
+    :type cloud_shadow_buffer_distance: float
 
     :param parallax_test:
-    :type bool:
         A bool of whether to turn on the parallax displacement test
-        from Frantz import (2018). Default is False.
+        from Frantz (2018). Default is False.
         Setting this parameter to True has no effect for Landsat
         scenes.
+    :type parallax_test: bool
     """
     container = acquisitions(dataset_path, acq_parser_hint)
     with tempfile.TemporaryDirectory(dir=outdir,
