@@ -230,8 +230,7 @@ def fmask(dataset_path, granule, out_fname, workdir, acq_parser_hint=None,
     :type granule: str
 
     :param out_fname:
-        A str containing the full file pathname to contain the
-        output file.
+        A str containing the full file pathname to the output file.
     :type out_fname: str
 
     :param workdir:
