@@ -12,9 +12,12 @@ import subprocess
 import signal
 import tempfile
 import logging
+import yaml
 
 from pathlib import Path
 import click
+import rasterio
+from idl_functions import histogram
 
 from wagl.acquisition import acquisitions
 from wagl.constants import BandType
@@ -347,3 +350,72 @@ def fmask_cogtif(fname, out_fname, platform):
         command.extend([fname, out_fname])
 
         run_command(command, dirname(fname))
+
+
+def fmask_metadata(fname, out_fname, cloud_buffer_distance=150.0,
+                   cloud_shadow_buffer_distance=300.0, parallax_test=False):
+    """
+    Produce a yaml metadata document.
+
+    :param fname:
+        A str containing the full file pathname to the fmask image
+        file.
+    :type fname: str
+
+    :param out_fname:
+        A str containing the full file pathname to the output yaml
+        document location.
+    :type out_fname: str
+
+    :param cloud_buffer_distance:
+        Distance (in metres) to buffer final cloud objects. Default
+        is 150m.
+    :type cloud_buffer_distance: float
+
+    :param cloud_shadow_buffer_distance:
+        Distance (in metres) to buffer final cloud shadow objects.
+        Default is 300m.
+    :type cloud_shadow_buffer_distance: float
+
+    :param parallax_test:
+        A bool of whether to turn on the parallax displacement test
+        from Frantz (2018). Default is False.
+        Setting this parameter to True has no effect for Landsat
+        scenes.
+    :type parallax_test: bool
+
+    :return:
+        None.  Metadata is written directly to disk.
+    :rtype: None
+    """
+    with rasterio.open(fname) as ds:
+        h = histogram(ds.read(1), minv=0, maxv=5)['histogram']
+
+    # Classification schema
+    # 0 -> Invalid
+    # 1 -> Clear
+    # 2 -> Cloud
+    # 3 -> Cloud Shadow
+    # 4 -> Snow
+    # 5 -> Water
+
+    # info will be based on the valid pixels only (exclude 0)
+    pcts = h[1:] / h[1:].sum() * 100
+
+    md = {
+        "Parameters": {
+            "Cloud Buffer Distance (metres)": cloud_buffer_distance,
+            "Cloud Shadow Buffer Distance (metres)": cloud_shadow_buffer_distance,
+            "Sentinel-2 Parallax (Frantz 2018)": parallax_test
+        },
+        "Distribution": {
+            "Clear": pcts[0],
+            "Cloud": pcts[1],
+            "Cloud Shadow": pcts[2],
+            "Snow": pcts[3],
+            "Water": pcts[4]
+        }
+    }
+
+    with open(out_fname, 'w') as src:
+        yaml.safe_dump(md, src, default_flow_style=False, indent=4) 
