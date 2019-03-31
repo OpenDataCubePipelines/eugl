@@ -359,12 +359,13 @@ def fmask_metadata(fname, out_fname, cloud_buffer_distance=150.0,
     Produce a yaml metadata document.
 
     :param fname:
-        A str containing the full file pathname to the fmask image
-        file.
+        A fully qualified name to the file containing the output
+        from the import Fmask algorithm.
     :type fname: str
 
     :param out_fname:
-        A str containing the full file pathname to the output file.
+        A fully qualified name to a file that will contain the
+        metadata.
     :type out_fname: str
 
     :param cloud_buffer_distance:
