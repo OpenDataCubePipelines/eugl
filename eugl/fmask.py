@@ -230,11 +230,12 @@ def fmask(dataset_path, granule, out_fname, workdir, acq_parser_hint=None,
     :type granule: str
 
     :param out_fname:
-        A str containing the full file pathname to the output file.
+        A fully qualified name to a file that will contain the
+        result of the Fmask algorithm.
     :type out_fname: str
 
     :param workdir:
-        A str containing a pathname to a directory that can be
+        A fully qualified name to a directory that can be
         used as scratch space for fmask processing.
     :type workdir: str
 
