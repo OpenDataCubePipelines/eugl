@@ -215,9 +215,9 @@ def _sentinel2_fmask(dataset_path, container, granule, out_fname, work_dir,
     run_command(cmd, work_dir)
 
 
-def fmask(dataset_path, granule, out_fname, workdir, acq_parser_hint=None,
-          cloud_buffer_distance=150.0, cloud_shadow_buffer_distance=300.0,
-          parallax_test=False):
+def fmask(dataset_path, granule, out_fname, metadata_out_fname, workdir,
+          acq_parser_hint=None, cloud_buffer_distance=150.0,
+          cloud_shadow_buffer_distance=300.0, parallax_test=False):
     """
     Execute the fmask process.
 
@@ -236,6 +236,11 @@ def fmask(dataset_path, granule, out_fname, workdir, acq_parser_hint=None,
         A fully qualified name to a file that will contain the
         result of the Fmask algorithm.
     :type out_fname: str
+
+    :param metadata_out_fname:
+        A fully qualified name to a file that will contain the
+        metadata from the fmask process.
+    :type metadata_out_fname: str
 
     :param workdir:
         A fully qualified name to a directory that can be
@@ -278,6 +283,10 @@ def fmask(dataset_path, granule, out_fname, workdir, acq_parser_hint=None,
         else:
             msg = "Sensor not supported"
             raise Exception(msg)
+
+        # metadata
+        fmask_metadata(out_fname, metadata_out_fname, cloud_buffer_distance,
+                       cloud_shadow_buffer_distance, parallax_test)
 
 
 def fmask_cogtif(fname, out_fname, platform):
