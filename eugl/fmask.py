@@ -260,7 +260,7 @@ def fmask(dataset_path, granule, out_fname, workdir, acq_parser_hint=None,
     :type parallax_test: bool
     """
     container = acquisitions(dataset_path, acq_parser_hint)
-    with tempfile.TemporaryDirectory(dir=outdir,
+    with tempfile.TemporaryDirectory(dir=workdir,
                                      prefix='pythonfmask-') as tmpdir:
         acq = container.get_acquisitions(None, granule, False)[0]
 
