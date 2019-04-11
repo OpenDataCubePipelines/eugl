@@ -209,7 +209,7 @@ def _sentinel2_fmask(dataset_path, container, granule, out_fname, work_dir,
            "--shadowbufferdistance", str(cloud_shadow_buffer_distance)]
 
     if parallax_test:
-        cmd.extend("--parallaxtest")
+        cmd.append("--parallaxtest")
 
     run_command(cmd, work_dir)
 
