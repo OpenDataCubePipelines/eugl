@@ -19,6 +19,8 @@ import click
 from wagl.acquisition import acquisitions
 from wagl.constants import BandType
 
+from eugl.metadata import fmask_metadata
+
 _LOG = logging.getLogger(__name__)
 
 os.environ["CPL_ZIP_ENCODING"] = "UTF-8"
@@ -207,14 +209,14 @@ def _sentinel2_fmask(dataset_path, container, granule, out_fname, work_dir,
            "--shadowbufferdistance", str(cloud_shadow_buffer_distance)]
 
     if parallax_test:
-        cmd.extend("--parallaxtest")
+        cmd.append("--parallaxtest")
 
     run_command(cmd, work_dir)
 
 
-def fmask(dataset_path, granule, out_fname, workdir, acq_parser_hint=None,
-          cloud_buffer_distance=150.0, cloud_shadow_buffer_distance=300.0,
-          parallax_test=False):
+def fmask(dataset_path, granule, out_fname, metadata_out_fname, workdir,
+          acq_parser_hint=None, cloud_buffer_distance=150.0,
+          cloud_shadow_buffer_distance=300.0, parallax_test=False):
     """
     Execute the fmask process.
 
@@ -233,6 +235,11 @@ def fmask(dataset_path, granule, out_fname, workdir, acq_parser_hint=None,
         A fully qualified name to a file that will contain the
         result of the Fmask algorithm.
     :type out_fname: str
+
+    :param metadata_out_fname:
+        A fully qualified name to a file that will contain the
+        metadata from the fmask process.
+    :type metadata_out_fname: str
 
     :param workdir:
         A fully qualified name to a directory that can be
@@ -275,3 +282,80 @@ def fmask(dataset_path, granule, out_fname, workdir, acq_parser_hint=None,
         else:
             msg = "Sensor not supported"
             raise Exception(msg)
+
+        # metadata
+        fmask_metadata(out_fname, metadata_out_fname, cloud_buffer_distance,
+                       cloud_shadow_buffer_distance, parallax_test)
+
+
+def fmask_cogtif(fname, out_fname, platform):
+    """
+    Convert the standard fmask output to a cloud optimised geotif.
+    """
+
+    with tempfile.TemporaryDirectory(dir=dirname(fname),
+                                     prefix='cogtif-') as tmpdir:
+
+        # set the platform specific options for gdal function
+
+        # setting the fmask's overview block size depending on the specific sensor.
+        # Current, only USGS dataset are tiled at 512 x 512 for standardizing
+        # Level 2 ARD products. Sentinel-2 tile size are inherited from the
+        # L1C products and its overview's blocksize are default value of GDAL's
+        # overview block size of 128 x 128
+
+        # TODO Standardizing the Sentinel-2's overview tile size with external inputs
+
+        if platform == "LANDSAT":
+            options = {'compress': 'deflate',
+                       'zlevel': 4,
+                       'blockxsize': 512,
+                       'blockysize': 512}
+
+            config_options = {'GDAL_TIFF_OVR_BLOCKSIZE': options['blockxsize']}
+        else:
+            options = {'compress': 'deflate',
+                       'zlevel': 4}
+
+            config_options = None
+
+        # clean all previous overviews
+        command = ["gdaladdo",
+                   "-clean",
+                   fname]
+        run_command(command, tmpdir)
+
+        # build new overviews/pyramids consistent with NBAR/NBART products
+        # the overviews are built with 'mode' re-sampling method
+        cmd = ['gdaladdo',
+               '-r',
+               'mode',
+               fname,
+               '2',
+               '4',
+               '8',
+               '16',
+               '32']
+        run_command(cmd, tmpdir)
+
+        # create the cogtif
+        command = ["gdal_translate",
+                   "-of",
+                   "GTiff",
+                   "-co",
+                   "TILED=YES",
+                   "-co",
+                   "PREDICTOR=2",
+                   "-co",
+                   "COPY_SRC_OVERVIEWS=YES"]
+
+        for key, value in options.items():
+            command.extend(['-co', '{}={}'.format(key, value)])
+
+        if config_options:
+            for key, value in config_options.items():
+                command.extend(['--config', '{}'.format(key), '{}'.format(value)])
+
+        command.extend([fname, out_fname])
+
+        run_command(command, dirname(fname))
