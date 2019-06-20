@@ -40,6 +40,7 @@ import yaml
 from wagl.data import write_img
 from wagl.acquisition import acquisitions
 from wagl.constants import BandType
+from wagl.geobox import GriddedGeoBox
 from wagl.singlefile_workflow import DataStandardisation
 from eugl.fmask import run_command, CommandError
 from eugl.acquisition_info import acquisition_info
@@ -163,8 +164,8 @@ class GverifyTask(luigi.Task):
                 source_band = pjoin(workdir, 'source.tif')
                 source_image = h5[location][:]
                 source_image[source_image == -999] = 0
-                write_img(source_image, source_band, geobox=acq_info.geobox, nodata=0,
-                          options={'compression': 'deflate', 'zlevel': 1})
+                write_img(source_image, source_band, geobox=GriddedGeoBox.from_dataset(h5[location]),
+                          nodata=0, options={'compression': 'deflate', 'zlevel': 1})
 
             # returns a reference image from one of ls5/7/8
             #  the gqa band id will differ depending on if the source image is 5/7/8
