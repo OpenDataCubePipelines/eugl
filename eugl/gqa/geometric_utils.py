@@ -11,55 +11,18 @@ import os
 from os.path import join as pjoin, splitext, basename
 import re
 import subprocess
+import typing
 
 import yaml
 import pandas
 import rasterio
 from rasterio.warp import Resampling
+
 from eugl.version import __version__
-
-
-def _rounded(d):
-    return round(float(d), 2)
-
-
-def _populate_nan_residuals():
-    empty_points = {'x': pandas.np.nan,
-                    'y': pandas.np.nan,
-                    'xy': pandas.np.nan}
-
-    residuals = {'mean': empty_points.copy(),
-                 'stddev': empty_points.copy(),
-                 'iterative_mean': empty_points.copy(),
-                 'iterative_stddev': empty_points.copy(),
-                 'abs_iterative_mean': empty_points.copy(),
-                 'abs': empty_points.copy(),
-                 'cep90': pandas.np.nan}
-
-    return residuals
-
-
-def _gls_version(ref_fname):
-    # TODO a more appropriate method of version detection and/or population of metadata
-    if 'GLS2000_GCP_SCENE' in ref_fname:
-        gls_version = 'GLS_v1'
-    else:
-        gls_version = 'GQA_v3'
-
-    return gls_version
-
-
-def _write_gqa_yaml(out_fname, data):
-    _LOG.debug('Writing result yaml: %s', out_fname)
-    with open(out_fname, 'w') as f:
-        yaml.safe_dump(data, f, default_flow_style=False, indent=4)
-
-
-# TODO replace with structlog (same as wagl and tesp)
-_LOG = logging.getLogger(__name__)
 
 # Post SLC-OFF date
 SLC_OFF = datetime.datetime(2003, 6, 1)
+_LOG = logging.getLogger(__name__)
 
 # TODO only work with the latest naming convention provided in the MTL file
 # TODO replace the quick and dirty BAND_MAP that accounts for different sensors
@@ -360,7 +323,7 @@ OLD_BAND_MAP = {
 }
 
 
-def _clean_name(s):
+def _clean_name(s: str) -> str:
     """
     >>> _clean_name("Residual x ")
     'residual_x'
@@ -368,8 +331,8 @@ def _clean_name(s):
     return str(s).strip().lower().replace(' ', '_')
 
 
-def reproject(source_fname, reference_fname, out_fname,
-              resampling=Resampling.bilinear):
+def reproject(source_fname: str, reference_fname: str, out_fname: str,
+              resampling: Resampling = Resampling.bilinear) -> None:
     """
     Reproject an image.
 
@@ -413,3 +376,49 @@ def reproject(source_fname, reference_fname, out_fname,
 
     _LOG.info('calling gdalwarp:\n%s', cmd)
     subprocess.check_call(cmd)
+
+
+def _populate_nan_residuals() -> typing.Dict:
+    """
+    Returns default values for GQA results
+    """
+    empty_points = {'x': pandas.np.nan,
+                    'y': pandas.np.nan,
+                    'xy': pandas.np.nan}
+
+    residuals = {'mean': empty_points.copy(),
+                 'stddev': empty_points.copy(),
+                 'iterative_mean': empty_points.copy(),
+                 'iterative_stddev': empty_points.copy(),
+                 'abs_iterative_mean': empty_points.copy(),
+                 'abs': empty_points.copy(),
+                 'cep90': pandas.np.nan}
+
+    return residuals
+
+
+def _gls_version(ref_fname: str) -> str:
+    """
+    Placeholder implementation for deducing GLS collection version
+    TODO: update with a methodical approach
+    """
+    if 'GLS2000_GCP_SCENE' in ref_fname:
+        gls_version = 'GLS_v1'
+    else:
+        gls_version = 'GQA_v3'
+
+    return gls_version
+
+
+def _write_gqa_yaml(out_fname: str, data: typing.Dict) -> None:
+    """
+    Writes out the gqa datasets
+    """
+    _LOG.debug('Writing result yaml: %s', out_fname)
+    with open(out_fname, 'w') as f:
+        yaml.safe_dump(data, f, default_flow_style=False, indent=4)
+
+
+def _rounded(d: typing.SupportsFloat) -> float:
+    """ Rounds argument to 2 decimal places """
+    return round(float(d), 2)
