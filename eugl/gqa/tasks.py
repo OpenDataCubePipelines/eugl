@@ -14,7 +14,6 @@ from __future__ import print_function
 
 import math
 import re
-import logging
 import os
 from os.path import join as pjoin, dirname, basename, exists, isdir, abspath
 import glob
@@ -23,10 +22,7 @@ from datetime import datetime, timezone
 from collections import Counter, namedtuple
 from functools import partial
 from itertools import chain
-
-from pkg_resources import resource_filename
-from structlog import wrap_logger
-from structlog.processors import JSONRenderer
+import logging
 
 import luigi
 import pandas
@@ -41,7 +37,9 @@ from wagl.data import write_img
 from wagl.acquisition import acquisitions
 from wagl.constants import BandType
 from wagl.geobox import GriddedGeoBox
+from wagl.logs import ERROR_LOGGER
 from wagl.singlefile_workflow import DataStandardisation
+
 from eugl.fmask import run_command, CommandError
 from eugl.acquisition_info import acquisition_info
 from eugl.metadata import get_gqa_metadata
@@ -58,13 +56,8 @@ from eodatasets.serialise import read_yaml_metadata
 from eodatasets.serialise import write_yaml_metadata
 from eodatasets.verify import PackageChecksum
 
-ERROR_LOGGER = wrap_logger(logging.getLogger('errors'),
-                           processors=[JSONRenderer(indent=1, sort_keys=True)])
-
-write_yaml = partial(yaml.safe_dump, default_flow_style=False, indent=4)
-
-_LOG = wrap_logger(logging.getLogger(__name__),
-                   processors=[JSONRenderer(indent=1, sort_keys=True)])
+_LOG = logging.getLogger(__name__)
+write_yaml = partial(yaml.safe_dump, default_flow_style=False, indent=4)  # pylint: disable=invalid-name
 
 
 class GverifyTask(luigi.Task):
@@ -189,7 +182,12 @@ class GverifyTask(luigi.Task):
                               resampling=acq_info.preferred_resampling_method)
         except (ValueError, FileNotFoundError, CommandError) as ve:
             error_msg = str(ve)
-            ERROR_LOGGER.error('gverify was not executed because:\n {}'.format(error_msg))
+            ERROR_LOGGER.error(
+                task=self.get_task_family(),
+                params=self.to_str_params(),
+                level1=self.level1,
+                exception='gverify was not executed because:\n {}'.format(error_msg)
+            )
         finally:
             # Write out runtime data to be processed by the gqa task
             run_args = {
