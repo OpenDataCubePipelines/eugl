@@ -15,8 +15,7 @@ from __future__ import print_function
 import math
 import re
 import os
-from os.path import join as pjoin, dirname, basename, exists, isdir, abspath
-import glob
+from os.path import join as pjoin, basename, exists, isdir, abspath
 import shutil
 from datetime import datetime, timezone
 from collections import Counter, namedtuple
@@ -28,14 +27,11 @@ import luigi
 import pandas
 import rasterio
 from rasterio.warp import Resampling
-from pathlib import Path
-import fiona
 import h5py
 import yaml
 
 from wagl.data import write_img
 from wagl.acquisition import acquisitions
-from wagl.constants import BandType
 from wagl.geobox import GriddedGeoBox
 from wagl.logs import ERROR_LOGGER
 from wagl.singlefile_workflow import DataStandardisation
@@ -48,13 +44,9 @@ from eugl.gqa.geometric_utils import (
     reproject,
     _write_gqa_yaml, _populate_nan_residuals,
     _gls_version, _clean_name, _rounded,
-    BAND_MAP, OLD_BAND_MAP, SLC_OFF
+    BAND_MAP, OLD_BAND_MAP
 )
 
-from eodatasets.metadata.gqa import populate_from_gqa
-from eodatasets.serialise import read_yaml_metadata
-from eodatasets.serialise import write_yaml_metadata
-from eodatasets.verify import PackageChecksum
 
 _LOG = logging.getLogger(__name__)
 write_yaml = partial(yaml.safe_dump, default_flow_style=False, indent=4)  # pylint: disable=invalid-name
