@@ -33,7 +33,7 @@ import yaml
 from wagl.data import write_img
 from wagl.acquisition import acquisitions
 from wagl.geobox import GriddedGeoBox
-from wagl.logs import ERROR_LOGGER
+from wagl.logs import TASK_LOGGER
 from wagl.singlefile_workflow import DataStandardisation
 
 from eugl.fmask import run_command, CommandError
@@ -174,7 +174,7 @@ class GverifyTask(luigi.Task):
                               resampling=acq_info.preferred_resampling_method)
         except (ValueError, FileNotFoundError, CommandError) as ve:
             error_msg = str(ve)
-            ERROR_LOGGER.error(
+            TASK_LOGGER.error(
                 task=self.get_task_family(),
                 params=self.to_str_params(),
                 level1=self.level1,
@@ -292,7 +292,7 @@ class GQATask(luigi.Task):
                 }
 
         except (StopIteration, FileNotFoundError) as _:
-            ERROR_LOGGER.error(
+            TASK_LOGGER.error(
                 "Gverify results file contains no tabulated data; {}".format(
                     self.input()['results'].path)
             )
