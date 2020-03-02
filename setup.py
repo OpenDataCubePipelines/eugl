@@ -26,7 +26,7 @@ setup(
     package_data={'eugl.gqa': ['data/*.csv']},
     dependency_links=[
         'git+https://github.com/ubarsc/rios@rios-1.4.10#egg=rios-1.4.10',
-        'git+https://github.com/ubarsc/python-fmask@pythonfmask-0.5.4#egg=python_fmask-0.5.4',
+        'git+https://github.com/ubarsc/python-fmask@pythonfmask-0.5.4#egg=python-fmask-0.5.4',
         'git+https://github.com/GeoscienceAustralia/wagl@develop#egg=wagl',
     ]
 )
