@@ -13,7 +13,7 @@ from wagl.acquisition.sentinel import Sentinel2Acquisition
 from wagl.acquisition.landsat import (
     Landsat5Acquisition,
     Landsat7Acquisition,
-    Landsat8Acquisition
+    Landsat8Acquisition,
 )
 
 from wagl.constants import GroupName, DatasetName
@@ -57,9 +57,9 @@ class LandsatAcquisitionInfo(AcquisitionInfo):
         return int(self.granule[6:9])
 
     def is_land_tile(self, ocean_tile_list):
-        path_row = '{},{}'.format(self.path, self.row)
+        path_row = "{},{}".format(self.path, self.row)
 
-        with open(ocean_tile_list['Landsat']) as fl:
+        with open(ocean_tile_list["Landsat"]) as fl:
             for line in fl:
                 if path_row == line.strip():
                     return False
@@ -71,32 +71,40 @@ class LandsatAcquisitionInfo(AcquisitionInfo):
 
     @property
     def preferred_gverify_method(self):
-        return 'fixed'
+        return "fixed"
 
 
 class Landsat5AcquisitionInfo(LandsatAcquisitionInfo):
-    def land_band(self, product='NBAR'):
-        return "{}/RES-GROUP-0/{}/{}".format(self.granule,
-                                             GroupName.STANDARD_GROUP.value,
-                                             DS_FMT.format(product=product, band_name='BAND-5'))
+    def land_band(self, product="NBAR"):
+        return "{}/RES-GROUP-0/{}/{}".format(
+            self.granule,
+            GroupName.STANDARD_GROUP.value,
+            DS_FMT.format(product=product, band_name="BAND-5"),
+        )
 
-    def ocean_band(self, product='NBAR'):
+    def ocean_band(self, product="NBAR"):
         ds_fmt = DatasetName.REFLECTANCE_FMT.value
-        return "{}/RES-GROUP-0/{}/{}".format(self.granule,
-                                             GroupName.STANDARD_GROUP.value,
-                                             DS_FMT.format(product=product, band_name='BAND-1'))
+        return "{}/RES-GROUP-0/{}/{}".format(
+            self.granule,
+            GroupName.STANDARD_GROUP.value,
+            DS_FMT.format(product=product, band_name="BAND-1"),
+        )
 
 
 class Landsat7AcquisitionInfo(LandsatAcquisitionInfo):
-    def land_band(self, product='NBAR'):
-        return "{}/RES-GROUP-1/{}/{}".format(self.granule,
-                                             GroupName.STANDARD_GROUP.value,
-                                             DS_FMT.format(product=product, band_name='BAND-5'))
+    def land_band(self, product="NBAR"):
+        return "{}/RES-GROUP-1/{}/{}".format(
+            self.granule,
+            GroupName.STANDARD_GROUP.value,
+            DS_FMT.format(product=product, band_name="BAND-5"),
+        )
 
-    def ocean_band(self, product='NBAR'):
-        return "{}/RES-GROUP-1/{}/{}".format(self.granule,
-                                             GroupName.STANDARD_GROUP.value,
-                                             DS_FMT.format(product=product, band_name='BAND-1'))
+    def ocean_band(self, product="NBAR"):
+        return "{}/RES-GROUP-1/{}/{}".format(
+            self.granule,
+            GroupName.STANDARD_GROUP.value,
+            DS_FMT.format(product=product, band_name="BAND-1"),
+        )
 
     @property
     def preferred_resampling_method(self):
@@ -107,34 +115,42 @@ class Landsat7AcquisitionInfo(LandsatAcquisitionInfo):
 
 
 class Landsat8AcquisitionInfo(LandsatAcquisitionInfo):
-    def land_band(self, product='NBAR'):
-        return "{}/RES-GROUP-1/{}/{}".format(self.granule,
-                                             GroupName.STANDARD_GROUP.value,
-                                             DS_FMT.format(product=product, band_name='BAND-6'))
+    def land_band(self, product="NBAR"):
+        return "{}/RES-GROUP-1/{}/{}".format(
+            self.granule,
+            GroupName.STANDARD_GROUP.value,
+            DS_FMT.format(product=product, band_name="BAND-6"),
+        )
 
-    def ocean_band(self, product='NBAR'):
-        return "{}/RES-GROUP-1/{}/{}".format(self.granule,
-                                             GroupName.STANDARD_GROUP.value,
-                                             DS_FMT.format(product=product, band_name='BAND-2'))
+    def ocean_band(self, product="NBAR"):
+        return "{}/RES-GROUP-1/{}/{}".format(
+            self.granule,
+            GroupName.STANDARD_GROUP.value,
+            DS_FMT.format(product=product, band_name="BAND-2"),
+        )
 
 
 class Sentinel2AcquisitionInfo(AcquisitionInfo):
-    def land_band(self, product='NBAR'):
-        return "{}/RES-GROUP-1/{}/{}".format(self.granule,
-                                             GroupName.STANDARD_GROUP.value,
-                                             DS_FMT.format(product=product, band_name='BAND-11'))
+    def land_band(self, product="NBAR"):
+        return "{}/RES-GROUP-1/{}/{}".format(
+            self.granule,
+            GroupName.STANDARD_GROUP.value,
+            DS_FMT.format(product=product, band_name="BAND-11"),
+        )
 
-    def ocean_band(self, product='NBAR'):
-        return "{}/RES-GROUP-0/{}/{}".format(self.granule,
-                                             GroupName.STANDARD_GROUP.value,
-                                             DS_FMT.format(product=product, band_name='BAND-2'))
+    def ocean_band(self, product="NBAR"):
+        return "{}/RES-GROUP-0/{}/{}".format(
+            self.granule,
+            GroupName.STANDARD_GROUP.value,
+            DS_FMT.format(product=product, band_name="BAND-2"),
+        )
 
     @property
     def tile_id(self):
-        return self.granule.split('_')[-2][1:]
+        return self.granule.split("_")[-2][1:]
 
     def is_land_tile(self, ocean_tile_list):
-        with open(ocean_tile_list['Sentinel-2']) as fl:
+        with open(ocean_tile_list["Sentinel-2"]) as fl:
             for line in fl:
                 if self.tile_id == line.strip():
                     return False
@@ -145,19 +161,22 @@ class Sentinel2AcquisitionInfo(AcquisitionInfo):
         landsat_scenes = fiona.open(landsat_scenes_shapefile)
 
         def path_row(properties):
-            return dict(path=int(properties['PATH']), row=int(properties['ROW']))
+            return dict(path=int(properties["PATH"]), row=int(properties["ROW"]))
 
         geobox = self.geobox
-        polygon = Polygon([geobox.ul_lonlat, geobox.ur_lonlat,
-                           geobox.lr_lonlat, geobox.ll_lonlat])
+        polygon = Polygon(
+            [geobox.ul_lonlat, geobox.ur_lonlat, geobox.lr_lonlat, geobox.ll_lonlat]
+        )
 
-        return [path_row(scene['properties'])
-                for scene in landsat_scenes
-                if shape(scene['geometry']).intersects(polygon)]
+        return [
+            path_row(scene["properties"])
+            for scene in landsat_scenes
+            if shape(scene["geometry"]).intersects(polygon)
+        ]
 
     @property
     def preferred_gverify_method(self):
-        return 'grid'
+        return "grid"
 
 
 def acquisition_info(container, granule=None):
