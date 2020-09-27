@@ -83,7 +83,6 @@ class Landsat5AcquisitionInfo(LandsatAcquisitionInfo):
         )
 
     def ocean_band(self, product="NBAR"):
-        ds_fmt = DatasetName.REFLECTANCE_FMT.value
         return "{}/RES-GROUP-0/{}/{}".format(
             self.granule,
             GroupName.STANDARD_GROUP.value,

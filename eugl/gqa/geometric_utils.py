@@ -6,10 +6,6 @@
 from __future__ import print_function
 import datetime
 import logging
-import math
-import os
-from os.path import join as pjoin, splitext, basename
-import re
 import subprocess
 import typing
 
@@ -18,7 +14,6 @@ import pandas
 import rasterio
 from rasterio.warp import Resampling
 
-from eugl.version import __version__
 
 # Post SLC-OFF date
 SLC_OFF = datetime.datetime(2003, 6, 1)

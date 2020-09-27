@@ -1,20 +1,19 @@
 # coding=utf-8
 """
 Execution method for FMask - http://pythonfmask.org - (cloud, cloud shadow, water and
-snow/ice classification) code supporting Sentinel-2 Level 1 C SAFE format zip archives hosted by the
-Australian Copernicus Data Hub - http://www.copernicus.gov.au/ - for direct (zip) read access
-by datacube.
+snow/ice classification) code supporting Sentinel-2 Level 1 C SAFE format zip archives
+hosted by the Australian Copernicus Data Hub - http://www.copernicus.gov.au/ - for
+direct (zip) read access by datacube.
 """
 from __future__ import absolute_import
 import os
-from os.path import join as pjoin, abspath, basename, dirname, exists
+from os.path import join as pjoin, dirname
 import subprocess
 import signal
 import tempfile
 import logging
 
 from pathlib import Path
-import click
 
 from wagl.acquisition import acquisitions
 from wagl.constants import BandType
