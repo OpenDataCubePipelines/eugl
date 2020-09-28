@@ -5,17 +5,17 @@ from idl_functions import histogram
 
 from eugl.version import __version__, REPO_URL
 
-FMASK_REPO_URL = 'https://bitbucket.org/chchrsc/python-fmask'
+FMASK_REPO_URL = "https://bitbucket.org/chchrsc/python-fmask"
 
 # TODO: Fix update to merge the dictionaries
 
 
 def _get_eugl_metadata():
     return {
-        'software_versions': {
-            'eugl': {
-                'version': __version__,
-                'repo_url': REPO_URL,
+        "software_versions": {
+            "eugl": {
+                "version": __version__,
+                "repo_url": REPO_URL,
             }
         }
     }
@@ -23,9 +23,9 @@ def _get_eugl_metadata():
 
 def _get_fmask_metadata():
     base_info = _get_eugl_metadata()
-    base_info['software_versions']['fmask'] = {
-        'version': fmask.__version__,
-        'repo_url': FMASK_REPO_URL
+    base_info["software_versions"]["fmask"] = {
+        "version": fmask.__version__,
+        "repo_url": FMASK_REPO_URL,
     }
 
     return base_info
@@ -38,27 +38,30 @@ def get_gqa_metadata(gverify_executable):
     :returns metadata dictionary:
     """
 
-    gverify_version = gverify_executable.split('_')[-1]
+    gverify_version = gverify_executable.split("_")[-1]
     base_info = _get_eugl_metadata()
-    base_info['software_versions']['gverify'] = {
-        'version': gverify_version
-    }
+    base_info["software_versions"]["gverify"] = {"version": gverify_version}
 
     return base_info
 
 
 def _gls_version(ref_fname):
     # TODO a more appropriate method of version detection and/or population of metadata
-    if 'GLS2000_GCP_SCENE' in ref_fname:
-        gls_version = 'GLS_v1'
+    if "GLS2000_GCP_SCENE" in ref_fname:
+        gls_version = "GLS_v1"
     else:
-        gls_version = 'GQA_v3'
+        gls_version = "GQA_v3"
 
     return gls_version
 
 
-def fmask_metadata(fname, out_fname, cloud_buffer_distance=150.0,
-                   cloud_shadow_buffer_distance=300.0, parallax_test=False):
+def fmask_metadata(
+    fname,
+    out_fname,
+    cloud_buffer_distance=150.0,
+    cloud_shadow_buffer_distance=300.0,
+    parallax_test=False,
+):
     """
     Produce a yaml metadata document.
 
@@ -94,7 +97,7 @@ def fmask_metadata(fname, out_fname, cloud_buffer_distance=150.0,
     :rtype: None
     """
     with rasterio.open(fname) as ds:
-        hist = histogram(ds.read(1), minv=0, maxv=5)['histogram']
+        hist = histogram(ds.read(1), minv=0, maxv=5)["histogram"]
 
     # base info (software versions)
     base_info = _get_fmask_metadata()
@@ -115,19 +118,19 @@ def fmask_metadata(fname, out_fname, cloud_buffer_distance=150.0,
         "parameters": {
             "cloud_buffer_distance_metres": cloud_buffer_distance,
             "cloud_shadow_buffer_distance_metres": cloud_shadow_buffer_distance,
-            "frantz_parallax_sentinel_2": parallax_test
+            "frantz_parallax_sentinel_2": parallax_test,
         },
         "percent_class_distribution": {
             "clear": float(pdf[0]),
             "cloud": float(pdf[1]),
             "cloud_shadow": float(pdf[2]),
             "snow": float(pdf[3]),
-            "water": float(pdf[4])
-        }
+            "water": float(pdf[4]),
+        },
     }
 
     for key, value in base_info.items():
         md[key] = value
 
-    with open(out_fname, 'w') as src:
-        yaml.safe_dump(md, src, default_flow_style=False, indent=4) 
+    with open(out_fname, "w") as src:
+        yaml.safe_dump(md, src, default_flow_style=False, indent=4)

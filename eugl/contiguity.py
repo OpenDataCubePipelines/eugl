@@ -27,7 +27,7 @@ def contiguity(fname):
     with rasterio.open(fname) as ds:
         geobox = GriddedGeoBox.from_dataset(ds)
         yblock, xblock = ds.block_shapes[0]
-        ones = np.ones((ds.height, ds.width), dtype='uint8')
+        ones = np.ones((ds.height, ds.width), dtype="uint8")
         for band in ds.indexes:
             ones &= ds.read(band) > 0
 
@@ -35,18 +35,25 @@ def contiguity(fname):
 
 
 @click.command(help=__doc__)
-@click.option('--output', help="Write contiguity datasets into this directory",
-              type=click.Path(exists=False, writable=True, dir_okay=True))
-@click.argument('datasets',
-                type=click.Path(exists=True, readable=True, writable=False),
-                nargs=-1)
-@click.option('--platform', help=" Sensor platform where dataset is source from.", default=None)
+@click.option(
+    "--output",
+    help="Write contiguity datasets into this directory",
+    type=click.Path(exists=False, writable=True, dir_okay=True),
+)
+@click.argument(
+    "datasets", type=click.Path(exists=True, readable=True, writable=False), nargs=-1
+)
+@click.option(
+    "--platform", help=" Sensor platform where dataset is source from.", default=None
+)
 def main(output, datasets, platform):
     """
     For input 'vrt' generate Contiguity
     outputs and write to the destination path specified by 'output'
     """
-    logging.basicConfig(format='%(asctime)s %(levelname)s %(message)s', level=logging.INFO)
+    logging.basicConfig(
+        format="%(asctime)s %(levelname)s %(message)s", level=logging.INFO
+    )
     for dataset in datasets:
         path = dataset
         stem = Path(path).stem
@@ -59,6 +66,6 @@ def main(output, datasets, platform):
             contiguity_data,
             contiguity_img,
             geobox=geobox,
-            options={'compress': 'deflate', 'zlevel': 4},
-            config_options={}
+            options={"compress": "deflate", "zlevel": 4},
+            config_options={},
         )
