@@ -12,12 +12,7 @@ FMASK_REPO_URL = "https://bitbucket.org/chchrsc/python-fmask"
 
 def _get_eugl_metadata():
     return {
-        "software_versions": {
-            "eugl": {
-                "version": __version__,
-                "repo_url": REPO_URL,
-            }
-        }
+        "software_versions": {"eugl": {"version": __version__, "repo_url": REPO_URL,}}
     }
 
 

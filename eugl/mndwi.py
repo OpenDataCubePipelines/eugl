@@ -3,12 +3,10 @@
 import h5py
 import yaml
 import numexpr
-import rasterio
 import numpy as np
 
 from rasterio.warp import Resampling
 
-from pprint import pprint
 from wagl.hdf5 import find
 from wagl.geobox import GriddedGeoBox
 from wagl.tiling import generate_tiles
@@ -16,7 +14,7 @@ from wagl.data import reproject_array_to_array
 
 # from funcs_data import reproject_array_to_array
 
-from os.path import dirname, join as pjoin, split as psplit
+from os.path import split as psplit
 
 
 def compute_mndwi(green_im, swir_im):
@@ -44,7 +42,7 @@ def compute_mndwi(green_im, swir_im):
 
 def get_mndwi_bands(granule, platform_id, product, paths):
     """
-    Get the sensor name and the group paths to 
+    Get the sensor name and the group paths to
     the green and swir bands used in the MNDWI
     calculation.
 
@@ -310,7 +308,7 @@ def mndwi(wagl_h5_file, granule, out_fname):
         lowerVal_arr[i] = lowerVal
         upperVal_arr[i] = UpperVal
 
-    lower_ds = h5_fid.create_dataset(
+    h5_fid.create_dataset(
         "mndwi_1st_percentiles",
         data=lowerVal_arr,
         shape=lowerVal_arr.shape,
@@ -318,7 +316,7 @@ def mndwi(wagl_h5_file, granule, out_fname):
         compression="lzf",
     )
 
-    upper_ds = h5_fid.create_dataset(
+    h5_fid.create_dataset(
         "mndwi_99th_percentiles",
         data=upperVal_arr,
         shape=upperVal_arr.shape,
