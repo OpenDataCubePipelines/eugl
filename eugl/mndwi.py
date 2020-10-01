@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 import h5py
 import yaml
 import numexpr
@@ -11,8 +9,6 @@ from wagl.hdf5 import find
 from wagl.geobox import GriddedGeoBox
 from wagl.tiling import generate_tiles
 from wagl.data import reproject_array_to_array
-
-# from funcs_data import reproject_array_to_array
 
 from os.path import split as psplit
 
