@@ -90,6 +90,10 @@ def get_mndwi_bands(granule, platform_id, product, paths):
     return green_path[0], swir_path[0]
 
 
+def get_percentile(arr, nodata, percent_tuple):
+    return np.percentile(arr[arr != nodata], percent_tuple)
+
+
 def get_RGB_bands(platform_id, product, paths):
     """
     Get the RGB band paths from the H5 file.
@@ -273,8 +277,8 @@ def mndwi(wagl_h5_file, granule, out_fname):
         green_path, swir_path = get_mndwi_bands(granule, platform_id, prod, paths)
 
         green_ds = granule_fid[green_path]
-        green_im = green_ds[:]
         chunks = green_ds.chunks
+        nRows, nCols = green_ds.shape
         geobox = GriddedGeoBox.from_dataset(green_ds)
         nodata = green_ds.attrs["no_data_value"]
 
@@ -297,7 +301,6 @@ def mndwi(wagl_h5_file, granule, out_fname):
         #  Compute mndwi via tiles  #
         #   and save tiles to h5    #
         # ------------------------- #
-        nRows, nCols = green_im.shape
         tiles = generate_tiles(
             samples=nRows, lines=nCols, xtile=chunks[1], ytile=chunks[0]
         )
@@ -305,7 +308,7 @@ def mndwi(wagl_h5_file, granule, out_fname):
         # create mndwi dataset
         mndwi_ds = mndwi_grp.create_dataset(
             f"mndwi_image_{prod}",
-            shape=green_im.shape,
+            shape=(nRows, nCols),
             dtype="float32",
             compression="lzf",
             chunks=chunks,
@@ -329,26 +332,27 @@ def mndwi(wagl_h5_file, granule, out_fname):
             "spatial_resolution": abs(geobox.transform.a),
         }
 
-        mask = (green_im == nodata) | (swir_im == nodata)
-        mndwi_im = np.zeros([nRows, nCols], order="C", dtype=np.float32)
         for tile in tiles:
-            mndwi_tile = compute_mndwi(green_im[tile], swir_im[tile])
+            green_tile = green_ds[tile]
+            swir_tile = swir_im[tile]
+            mndwi_tile = compute_mndwi(green_tile, swir_tile)
 
             # perform masking
-            mndwi_tile[~np.isfinite(mndwi_tile)] = nodata
-            mndwi_tile[mask[tile]] = nodata
+            mask = (
+                (green_tile == nodata)
+                | (swir_tile == nodata)
+                | (~np.isfinite(mndwi_tile))
+            )
+            mndwi_tile[mask] = nodata
 
             mndwi_ds[tile] = mndwi_tile
-            mndwi_im[tile] = mndwi_tile
 
-        lowerVal, upperVal = np.percentile(mndwi_im[~mask], (1, 99))
+        lowerVal, upperVal = get_percentile(mndwi_ds[:], nodata, (1, 99))
         attrs["mndwi_1st_percentile"] = lowerVal
         attrs["mndwi_99th_percentile"] = upperVal
 
         # add attrs to dataset
         attach_image_attributes(mndwi_ds, attrs)
-
-    del green_im, swir_im, mndwi_im
 
     # -------------------------- #
     # Create  an rgb image (uint8) that can directly be opened from
