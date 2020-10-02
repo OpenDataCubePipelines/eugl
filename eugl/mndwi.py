@@ -268,7 +268,10 @@ def mndwi(wagl_h5_file, granule, out_fname):
 
         # create h5 attributes
         desc = "MNDWI ({0} m) derived with {1} and {2} ({3} reflectances)".format(
-            int(spatial_res), psplit(green_path)[-1], psplit(swir_path)[-1], prod,
+            int(spatial_res),
+            psplit(green_path)[-1],
+            psplit(swir_path)[-1],
+            prod,
         )
 
         attrs = {
@@ -354,7 +357,10 @@ def mndwi(wagl_h5_file, granule, out_fname):
 
         # create h5 attributes
         desc = "scaled {0} band ({1} m) derived from {2} {3}".format(
-            rgb_names[i], int(spatial_res), products[0], psplit(rgb_paths[i])[-1],
+            rgb_names[i],
+            int(spatial_res),
+            products[0],
+            psplit(rgb_paths[i])[-1],
         )
         attrs["description"] = desc
 
