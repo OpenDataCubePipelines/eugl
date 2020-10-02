@@ -1,3 +1,0 @@
-include versioneer.py
-include eugl/_version.py
-
