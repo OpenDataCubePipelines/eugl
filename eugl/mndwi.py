@@ -5,10 +5,10 @@ import numpy as np
 
 from rasterio.warp import Resampling
 
-from wagl.hdf5 import find
 from wagl.geobox import GriddedGeoBox
 from wagl.tiling import generate_tiles
 from wagl.data import reproject_array_to_array
+from wagl.hdf5 import find, attach_image_attributes
 
 from os.path import split as psplit
 
@@ -180,6 +180,59 @@ def seadas_style_scaling(band_im, sfactor):
     return np.array(255 * scaled_im, order="C", dtype=np.uint8)
 
 
+def create_scaled_rgb_dataset(out_fid, in_fid, platform_id, product, input_paths):
+    # get the rgb band paths from the first product
+    red_path, grn_path, blu_path = get_RGB_bands(platform_id, product, input_paths)
+    rgb_paths = [red_path, grn_path, blu_path]
+    rgb_names = ["red", "green", "blue"]
+
+    # create a group
+    rgb_grp = out_fid.create_group("seadas_rgb")
+
+    # because no reprojection is necessary, we can load
+    # the red & blue bands as tiles to conserve memory
+    for i in range(len(rgb_names)):
+
+        in_ds = in_fid[rgb_paths[i]]
+        nRows, nCols = in_ds.shape
+        chunks = in_ds.chunks
+        geobox = GriddedGeoBox.from_dataset(in_ds)
+
+        rgb_ds = rgb_grp.create_dataset(
+            rgb_names[i],
+            shape=(nRows, nCols),
+            dtype="uint8",
+            compression="lzf",
+            chunks=chunks,
+            shuffle=True,
+        )
+
+        # create h5 attributes
+        desc = "scaled {0} band derived from {1} {2}".format(
+            rgb_names[i],
+            product,
+            psplit(rgb_paths[i])[-1],
+        )
+        attrs = {
+            "crs_wkt": geobox.crs.ExportToWkt(),
+            "geotransform": geobox.transform.to_gdal(),
+            "description": desc,
+            "platform_id": platform_id,
+            "spatial_resolution": abs(geobox.transform.a),
+        }
+
+        # add attrs to dataset
+        attach_image_attributes(rgb_ds, attrs)
+
+        tiles = generate_tiles(
+            samples=nRows, lines=nCols, xtile=chunks[1], ytile=chunks[0]
+        )
+
+        # reusing tiles from above
+        for tile in tiles:
+            rgb_ds[tile] = seadas_style_scaling(in_ds[tile], 10000.0)
+
+
 def mndwi(wagl_h5_file, granule, out_fname):
     """
     Computes the mndwi for a given granule in a wagl h5 file.
@@ -204,19 +257,12 @@ def mndwi(wagl_h5_file, granule, out_fname):
 
     # find the granule index in the wagl_h5_file
     fid = h5py.File(wagl_h5_file, "r")
-    grp = fid[granule]
-    paths = find(grp, "IMAGE")
+    granule_fid = fid[granule]
+    paths = find(granule_fid, "IMAGE")
 
     # get platform name
     md = yaml.load(fid[granule + "/METADATA/CURRENT"][()], Loader=yaml.FullLoader)
     platform_id = md["source_datasets"]["platform_id"]
-
-    # Get the 1st (lowerVal_arr) and 99th (upperVal_arr) percentikes
-    # for the each of the products. These arrays are very useful
-    # for creating MNDWI images, but this code will be removed once
-    # testing is complete.
-    lowerVal_arr = np.zeros([len(products)], order="C", dtype=np.float32)
-    upperVal_arr = np.zeros([len(products)], order="C", dtype=np.float32)
 
     # store mndwi-based products into a group
     mndwi_grp = h5_fid.create_group("mndwi")
@@ -226,15 +272,15 @@ def mndwi(wagl_h5_file, granule, out_fname):
         # search the h5 groups & get paths to the green and swir bands
         green_path, swir_path = get_mndwi_bands(granule, platform_id, prod, paths)
 
-        green_ds = grp[green_path]
+        green_ds = granule_fid[green_path]
         green_im = green_ds[:]
+        chunks = green_ds.chunks
         geobox = GriddedGeoBox.from_dataset(green_ds)
-        spatial_res = abs(geobox.transform.a)
         nodata = green_ds.attrs["no_data_value"]
 
         if platform_id.startswith("SENTINEL_2"):
             # we need to upscale the swir band
-            swir_ds = grp[swir_path]
+            swir_ds = granule_fid[swir_path]
             swir_im = reproject_array_to_array(
                 src_img=swir_ds[:],
                 src_geobox=GriddedGeoBox.from_dataset(swir_ds),
@@ -245,7 +291,7 @@ def mndwi(wagl_h5_file, granule, out_fname):
             )
 
         else:
-            swir_im = grp[swir_path][:]
+            swir_im = granule_fid[swir_path][:]
 
         # ------------------------- #
         #  Compute mndwi via tiles  #
@@ -253,7 +299,7 @@ def mndwi(wagl_h5_file, granule, out_fname):
         # ------------------------- #
         nRows, nCols = green_im.shape
         tiles = generate_tiles(
-            samples=nRows, lines=nCols, xtile=green_ds.chunks[1], ytile=green_ds.chunks[0]
+            samples=nRows, lines=nCols, xtile=chunks[1], ytile=chunks[0]
         )
 
         # create mndwi dataset
@@ -262,13 +308,12 @@ def mndwi(wagl_h5_file, granule, out_fname):
             shape=green_im.shape,
             dtype="float32",
             compression="lzf",
-            chunks=green_ds.chunks,
+            chunks=chunks,
             shuffle=True,
         )
 
         # create h5 attributes
-        desc = "MNDWI ({0} m) derived with {1} and {2} ({3} reflectances)".format(
-            int(spatial_res),
+        desc = "MNDWI derived with {0} and {1} ({2} reflectances)".format(
             psplit(green_path)[-1],
             psplit(swir_path)[-1],
             prod,
@@ -280,15 +325,9 @@ def mndwi(wagl_h5_file, granule, out_fname):
             "no_data_value": nodata,
             "granule": granule,
             "description": desc,
-            "n_lines": nRows,
-            "n_samples": nCols,
             "platform": platform_id,
-            "spatial_resolution": spatial_res,
+            "spatial_resolution": abs(geobox.transform.a),
         }
-
-        # add attrs to dataset
-        for key in attrs:
-            mndwi_ds.attrs[key] = attrs[key]
 
         mask = (green_im == nodata) | (swir_im == nodata)
         mndwi_im = np.zeros([nRows, nCols], order="C", dtype=np.float32)
@@ -302,80 +341,19 @@ def mndwi(wagl_h5_file, granule, out_fname):
             mndwi_ds[tile] = mndwi_tile
             mndwi_im[tile] = mndwi_tile
 
-        lowerVal, UpperVal = np.percentile(mndwi_im[~mask], (1, 99))
+        lowerVal, upperVal = np.percentile(mndwi_im[~mask], (1, 99))
+        attrs["mndwi_1st_percentile"] = lowerVal
+        attrs["mndwi_99th_percentile"] = upperVal
 
-        lowerVal_arr[i] = lowerVal
-        upperVal_arr[i] = UpperVal
-
-    h5_fid.create_dataset(
-        "mndwi_1st_percentiles",
-        data=lowerVal_arr,
-        shape=lowerVal_arr.shape,
-        dtype="float32",
-        compression="lzf",
-    )
-
-    h5_fid.create_dataset(
-        "mndwi_99th_percentiles",
-        data=upperVal_arr,
-        shape=upperVal_arr.shape,
-        dtype="float32",
-        compression="lzf",
-    )
+        # add attrs to dataset
+        attach_image_attributes(mndwi_ds, attrs)
 
     del green_im, swir_im, mndwi_im
 
-    # ----------------------------------- #
-    #  Create  an rgb image (uint8) that  #
-    #  can directly be  opened from  the  #
-    #  MNDWI H5 file. The following code  #
-    #  will be deleted after testing      #
-    # ----------------------------------- #
-
-    # get the rgb band paths from the first product
-    red_path, grn_path, blu_path = get_RGB_bands(platform_id, products[0], paths)
-    rgb_paths = [red_path, grn_path, blu_path]
-    rgb_names = ["red", "green", "blue"]
-
-    # create a group
-    rgb_grp = h5_fid.create_group("seadas_rgb")
-
-    # because no reprojection is necessary, we can load
-    # the red & blue bands as tiles to conserve memory
-    for i in range(0, len(rgb_names)):
-
-        chunks = grp[rgb_paths[i]].chunks
-
-        rgb_ds = rgb_grp.create_dataset(
-            rgb_names[i],
-            shape=(nRows, nCols),
-            dtype="uint8",
-            compression="lzf",
-            chunks=chunks,
-            shuffle=True,
-        )
-
-        # create h5 attributes
-        desc = "scaled {0} band ({1} m) derived from {2} {3}".format(
-            rgb_names[i],
-            int(spatial_res),
-            products[0],
-            psplit(rgb_paths[i])[-1],
-        )
-        attrs["description"] = desc
-
-        # add attrs to dataset
-        for key in attrs:
-            rgb_ds.attrs[key] = attrs[key]
-
-        # For some reason I have to recreate the tiles. Attempts
-        # to reuse the tiles from above were unsuccessful.
-        tiles = generate_tiles(
-            samples=nRows, lines=nCols, xtile=chunks[1], ytile=chunks[0]
-        )
-
-        for tile in tiles:
-            rgb_ds[tile] = seadas_style_scaling(grp[rgb_paths[i]][tile], 10000.0)
+    # -------------------------- #
+    # Create  an rgb image (uint8) that can directly be opened from
+    # the MNDWI H5 file. This code will be deleted after testing
+    create_scaled_rgb_dataset(h5_fid, granule_fid, platform_id, products[0], paths)
 
     fid.close()
     h5_fid.close()
