@@ -255,7 +255,6 @@ def mndwi(wagl_h5_file, granule, out_fname):
 
     # specify the reflectance products to use in generating mndwi
     products = ["LMBADJ"]
-    # products = ["LAMBERTIAN", "LMBSKYG", "LMBADJ"]
 
     # specify the resampling approach for the SWIR band
     resample_approach = Resampling.bilinear
