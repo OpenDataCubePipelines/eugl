@@ -254,8 +254,11 @@ def mndwi(wagl_h5_file, granule, out_fname):
     """
 
     # specify the reflectance products to use in generating mndwi
-    # products = ["LMBADJ"]
-    products = ["LAMBERTIAN", "LMBSKYG", "LMBADJ"]
+    products = ["LMBADJ"]
+    # products = ["LAMBERTIAN", "LMBSKYG", "LMBADJ"]
+
+    # specify the resampling approach for the SWIR band
+    resample_approach = Resampling.bilinear
 
     h5_fid = h5py.File(out_fname, "w")
 
@@ -282,6 +285,23 @@ def mndwi(wagl_h5_file, granule, out_fname):
         geobox = GriddedGeoBox.from_dataset(green_ds)
         nodata = green_ds.attrs["no_data_value"]
 
+        # create output h5 attributes
+        desc = "MNDWI derived with {0} and {1} ({2} reflectances)".format(
+            psplit(green_path)[-1],
+            psplit(swir_path)[-1],
+            prod,
+        )
+
+        attrs = {
+            "crs_wkt": geobox.crs.ExportToWkt(),
+            "geotransform": geobox.transform.to_gdal(),
+            "no_data_value": nodata,
+            "granule": granule,
+            "description": desc,
+            "platform": platform_id,
+            "spatial_resolution": abs(geobox.transform.a),
+        }
+
         if platform_id.startswith("SENTINEL_2"):
             # we need to upscale the swir band
             swir_ds = granule_fid[swir_path]
@@ -291,8 +311,9 @@ def mndwi(wagl_h5_file, granule, out_fname):
                 dst_geobox=geobox,
                 src_nodata=swir_ds.attrs["no_data_value"],
                 dst_nodata=nodata,
-                resampling=Resampling.bilinear,
+                resampling=resample_approach,
             )
+            attrs["SWIR_resampling_method"] = resample_approach.name
 
         else:
             swir_im = granule_fid[swir_path][:]
@@ -314,23 +335,6 @@ def mndwi(wagl_h5_file, granule, out_fname):
             chunks=chunks,
             shuffle=True,
         )
-
-        # create h5 attributes
-        desc = "MNDWI derived with {0} and {1} ({2} reflectances)".format(
-            psplit(green_path)[-1],
-            psplit(swir_path)[-1],
-            prod,
-        )
-
-        attrs = {
-            "crs_wkt": geobox.crs.ExportToWkt(),
-            "geotransform": geobox.transform.to_gdal(),
-            "no_data_value": nodata,
-            "granule": granule,
-            "description": desc,
-            "platform": platform_id,
-            "spatial_resolution": abs(geobox.transform.a),
-        }
 
         for tile in tiles:
             green_tile = green_ds[tile]
