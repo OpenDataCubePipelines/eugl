@@ -279,6 +279,7 @@ class GQATask(luigi.Task):
     workdir = luigi.Parameter()
     output_yaml = luigi.Parameter()
     cleanup = luigi.Parameter()
+    skip_altogether = luigi.BoolParameter(default=False)
 
     # GQA Algorithm parameters
     correlation_coefficient = luigi.FloatParameter()
@@ -286,6 +287,9 @@ class GQATask(luigi.Task):
     standard_deviations = luigi.FloatParameter()
 
     def requires(self):
+        if self.skip_altogether:
+            return None
+
         return GverifyTask(
             level1=self.level1,
             granule=self.granule,
@@ -307,9 +311,19 @@ class GQATask(luigi.Task):
 
         res = {}
 
-        # Read gverify arguments from yaml
-        with self.input()["runtime_args"].open("r") as _md:
-            gverify_args = yaml.load(_md)
+        if self.skip_altogether:
+            gverify_args = {
+                "executable": "N/A",
+                "ref_resolution": "N/A",
+                "ref_date": "N/A",
+                "ref_source_path": "N/A",
+                "granule": str(self.granule),
+                "error_msg": "skipped",
+            }
+        else:
+            # Read gverify arguments from yaml
+            with self.input()["runtime_args"].open("r") as _md:
+                gverify_args = yaml.load(_md)
 
         try:
             if (
@@ -331,7 +345,7 @@ class GQATask(luigi.Task):
                     for i in rh.Color.values
                 }
             else:
-                _LOG.debug("Writing NaNs for residuals; gverify failed to run")
+                _LOG.debug("Writing NaNs for residuals; gverify failed to run or skipped")
                 res = {
                     "final_qa_count": 0,
                     "residual": _populate_nan_residuals(),
