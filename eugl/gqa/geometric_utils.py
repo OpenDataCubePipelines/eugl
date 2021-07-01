@@ -420,5 +420,5 @@ def _write_gqa_yaml(out_fname: str, data: typing.Dict) -> None:
 
 
 def _rounded(d: typing.SupportsFloat) -> float:
-    """ Rounds argument to 2 decimal places """
+    """Rounds argument to 2 decimal places"""
     return round(float(d), 2)

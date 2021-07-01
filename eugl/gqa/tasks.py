@@ -279,6 +279,7 @@ class GQATask(luigi.Task):
     workdir = luigi.Parameter()
     output_yaml = luigi.Parameter()
     cleanup = luigi.Parameter()
+    skip_gqa = luigi.OptionalParameter(default="false")
 
     # GQA Algorithm parameters
     correlation_coefficient = luigi.FloatParameter()
@@ -286,6 +287,9 @@ class GQATask(luigi.Task):
     standard_deviations = luigi.FloatParameter()
 
     def requires(self):
+        if self.skip_gqa != "false":
+            return None
+
         return GverifyTask(
             level1=self.level1,
             granule=self.granule,
@@ -307,9 +311,19 @@ class GQATask(luigi.Task):
 
         res = {}
 
-        # Read gverify arguments from yaml
-        with self.input()["runtime_args"].open("r") as _md:
-            gverify_args = yaml.load(_md)
+        if self.skip_gqa != "false":
+            gverify_args = {
+                "executable": "N/A",
+                "ref_resolution": "N/A",
+                "ref_date": "N/A",
+                "ref_source_path": "N/A",
+                "granule": str(self.granule),
+                "error_msg": "skipped",
+            }
+        else:
+            # Read gverify arguments from yaml
+            with self.input()["runtime_args"].open("r") as _md:
+                gverify_args = yaml.load(_md)
 
         try:
             if (
@@ -331,7 +345,7 @@ class GQATask(luigi.Task):
                     for i in rh.Color.values
                 }
             else:
-                _LOG.debug("Writing NaNs for residuals; gverify failed to run")
+                _LOG.debug("Writing NaNs for residuals; gverify failed to run or skipped")
                 res = {
                     "final_qa_count": 0,
                     "residual": _populate_nan_residuals(),
@@ -373,7 +387,7 @@ class GQATask(luigi.Task):
 
 
 def collect_gcp(fix_location, landsat_scenes, result_file):
-    """ Concatenates gcps from multiple scenes """
+    """Concatenates gcps from multiple scenes"""
     with open(result_file, "w") as dest:
         for scene in landsat_scenes:
             path = "{0:0=3d}".format(scene["path"])
@@ -386,7 +400,7 @@ def collect_gcp(fix_location, landsat_scenes, result_file):
 
 
 def parse_gverify(res_filepath):
-    """ Read from the image-gverify.res output from gverify """
+    """Read from the image-gverify.res output from gverify"""
     # I want a comment on what rh stands for
     rh = pandas.read_csv(
         res_filepath,
