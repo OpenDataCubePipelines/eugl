@@ -279,7 +279,7 @@ class GQATask(luigi.Task):
     workdir = luigi.Parameter()
     output_yaml = luigi.Parameter()
     cleanup = luigi.Parameter()
-    skip_altogether = luigi.BoolParameter()
+    skip_altogether = luigi.OptionalParameter(default="false")
 
     # GQA Algorithm parameters
     correlation_coefficient = luigi.FloatParameter()
@@ -287,7 +287,7 @@ class GQATask(luigi.Task):
     standard_deviations = luigi.FloatParameter()
 
     def requires(self):
-        if self.skip_altogether:
+        if self.skip_altogether != "false":
             return None
 
         return GverifyTask(
@@ -311,7 +311,7 @@ class GQATask(luigi.Task):
 
         res = {}
 
-        if self.skip_altogether:
+        if self.skip_altogether != "false":
             gverify_args = {
                 "executable": "N/A",
                 "ref_resolution": "N/A",
