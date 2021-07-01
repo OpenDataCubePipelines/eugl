@@ -387,7 +387,7 @@ class GQATask(luigi.Task):
 
 
 def collect_gcp(fix_location, landsat_scenes, result_file):
-    """ Concatenates gcps from multiple scenes """
+    """Concatenates gcps from multiple scenes"""
     with open(result_file, "w") as dest:
         for scene in landsat_scenes:
             path = "{0:0=3d}".format(scene["path"])
@@ -400,7 +400,7 @@ def collect_gcp(fix_location, landsat_scenes, result_file):
 
 
 def parse_gverify(res_filepath):
-    """ Read from the image-gverify.res output from gverify """
+    """Read from the image-gverify.res output from gverify"""
     # I want a comment on what rh stands for
     rh = pandas.read_csv(
         res_filepath,
