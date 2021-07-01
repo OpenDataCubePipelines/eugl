@@ -279,7 +279,7 @@ class GQATask(luigi.Task):
     workdir = luigi.Parameter()
     output_yaml = luigi.Parameter()
     cleanup = luigi.Parameter()
-    skip_altogether = luigi.BoolParameter(default=False)
+    skip_altogether = luigi.BoolParameter()
 
     # GQA Algorithm parameters
     correlation_coefficient = luigi.FloatParameter()
