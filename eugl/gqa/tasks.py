@@ -320,6 +320,12 @@ class GQATask(luigi.Task):
                 "granule": str(self.granule),
                 "error_msg": "skipped",
             }
+
+            # Subdirectory in the task workdir
+            workdir = pjoin(self.workdir, "gverify")
+
+            if not exists(workdir):
+                os.makedirs(workdir)
         else:
             # Read gverify arguments from yaml
             with self.input()["runtime_args"].open("r") as _md:
