@@ -9,8 +9,8 @@ import logging
 import subprocess
 import typing
 
+import numpy as np
 import yaml
-import pandas
 import rasterio
 from rasterio.warp import Resampling
 
@@ -382,7 +382,7 @@ def _populate_nan_residuals() -> typing.Dict:
     """
     Returns default values for GQA results
     """
-    empty_points = {"x": pandas.np.nan, "y": pandas.np.nan, "xy": pandas.np.nan}
+    empty_points = {"x": np.nan, "y": np.nan, "xy": np.nan}
 
     residuals = {
         "mean": empty_points.copy(),
@@ -391,7 +391,7 @@ def _populate_nan_residuals() -> typing.Dict:
         "iterative_stddev": empty_points.copy(),
         "abs_iterative_mean": empty_points.copy(),
         "abs": empty_points.copy(),
-        "cep90": pandas.np.nan,
+        "cep90": np.nan,
     }
 
     return residuals
