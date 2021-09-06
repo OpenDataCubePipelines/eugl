@@ -91,7 +91,7 @@ class GverifyTask(luigi.Task):
     _gverify_results = "image-gverify.res"
 
     def requires(self):
-        return [DataStandardisation(self.level1, self.workdir, self.granule)]
+        return [DataStandardisation(self.level1, self.workdir, self.granule, acq_parser_hint=self.acq_parser_hint)]
 
     def output(self):
         workdir = pjoin(self.workdir, "gverify")
