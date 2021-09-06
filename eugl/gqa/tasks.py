@@ -204,6 +204,7 @@ class GverifyTask(luigi.Task):
         except (ValueError, FileNotFoundError, CommandError) as ve:
             error_msg = str(ve)
             TASK_LOGGER.error(
+                event="gverify",
                 task=self.get_task_family(),
                 params=self.to_str_params(),
                 level1=self.level1,
