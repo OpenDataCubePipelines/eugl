@@ -348,7 +348,7 @@ class GQATask(luigi.Task):
                 data = f"contents of {path}:\n"
                 with open(self.input()["results"].path) as fl:
                     for index, line in enumerate(fl):
-                        data += f"{index + 1:02d}{line}"
+                        data += f"{index + 1:03d} {line}"
                 raise ValueError(data)
 
                 rh, tr, df = parse_gverify(self.input()["results"].path)
