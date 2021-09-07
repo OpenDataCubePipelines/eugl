@@ -344,11 +344,15 @@ class GQATask(luigi.Task):
                 "error_msg" not in gverify_args or gverify_args["error_msg"] == ""
             ):  # Gverify successfully ran
 
+                path = self.input()["results"].path
+                data = f"contents of {path}:"
                 _LOG.debug('> gverify output:')
                 with open(self.input()["results"].path) as fl:
                     for line in fl:
                         _LOG.debug(line)
+                        data += line + "\n"
                 _LOG.debug('> gverify output finished.')
+                raise ValueError(data)
 
                 rh, tr, df = parse_gverify(self.input()["results"].path)
                 res = calculate_gqa(
