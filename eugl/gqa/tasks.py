@@ -345,13 +345,10 @@ class GQATask(luigi.Task):
             ):  # Gverify successfully ran
 
                 path = self.input()["results"].path
-                data = f"contents of {path}:"
-                _LOG.debug('> gverify output:')
+                data = f"contents of {path}:\n"
                 with open(self.input()["results"].path) as fl:
-                    for line in fl:
-                        _LOG.debug(line)
-                        data += line + "\n"
-                _LOG.debug('> gverify output finished.')
+                    for index, line in enumerate(fl):
+                        data += f"{index + 1:02d}{line}"
                 raise ValueError(data)
 
                 rh, tr, df = parse_gverify(self.input()["results"].path)
