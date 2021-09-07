@@ -337,12 +337,13 @@ class GQATask(luigi.Task):
         else:
             # Read gverify arguments from yaml
             with self.input()["runtime_args"].open("r") as _md:
-                gverify_args = yaml.load(_md)
+                gverify_args = yaml.load(_md, Loader=yaml.SafeLoader)
 
         try:
             if (
                 "error_msg" not in gverify_args or gverify_args["error_msg"] == ""
             ):  # Gverify successfully ran
+
                 rh, tr, df = parse_gverify(self.input()["results"].path)
                 res = calculate_gqa(
                     df,
