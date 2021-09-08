@@ -419,7 +419,7 @@ def parse_gverify(res_filepath):
     # I want a comment on what rh stands for
     rh = pandas.read_csv(
         res_filepath,
-        sep=r"\s*",
+        sep=r"\s+",
         skiprows=6,
         names=["Color", "Residual"],
         header=None,
@@ -453,7 +453,7 @@ def parse_gverify(res_filepath):
 
     df = pandas.read_csv(
         res_filepath,
-        sep=r"\s*",
+        sep=r"\s+",
         skiprows=22,
         names=column_names,
         header=None,
