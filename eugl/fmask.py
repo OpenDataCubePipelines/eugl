@@ -230,74 +230,18 @@ def _sentinel2_fmask(
     """
     Fmask algorithm for Sentinel-2.
     """
-    # filenames
-    vrt_fname = pjoin(work_dir, "reflective.vrt")
-    angles_fname = pjoin(work_dir, ".angles.img")
-
-    acqs = []
-    for grp in container.groups:
-        acqs.extend(container.get_acquisitions(grp, granule, False))
-
-    band_ids = [acq.band_id for acq in acqs]
-    required_ids = [str(i) for i in range(1, 13)]
-    required_ids.insert(8, "8A")
-
-    acq = container.get_acquisitions(granule=granule)[0]
-
-    # zipfile extraction
-    xml_out_fname = pjoin(work_dir, Path(acq.granule_xml).name)
-    if ".zip" in acq.uri:
-        cmd = ["unzip", "-p", dataset_path, acq.granule_xml, ">", xml_out_fname]
-        run_command(cmd, work_dir)
-
-    # vrt creation
-    cmd = [
-        "gdalbuildvrt",
-        "-resolution",
-        "user",
-        "-tr",
-        "20",
-        "20",
-        "-separate",
-        "-overwrite",
-        vrt_fname,
-    ]
-    for band_id in required_ids:
-        acq = acqs[band_ids.index(band_id)]
-        if ".zip" in acq.uri:
-            cmd.append(acq.uri.replace("zip:", "/vsizip/").replace("!", ""))
-        else:
-            cmd.append(acq.uri)
-
+    cmd = ["unzip", dataset_path, "-d", work_dir]
     run_command(cmd, work_dir)
 
-    # angles generation
-    if ".zip" in acq.uri:
-        cmd = [
-            "fmask_sentinel2makeAnglesImage.py",
-            "-i",
-            xml_out_fname,
-            "-o",
-            angles_fname,
-        ]
-    else:
-        cmd = [
-            "fmask_sentinel2makeAnglesImage.py",
-            "-i",
-            acq.granule_xml,
-            "-o",
-            angles_fname,
-        ]
-
-    run_command(cmd, work_dir)
+    safe_dir = str(list(Path(work_dir).iterdir())[0])
 
     # run fmask
     cmd = [
         "fmask_sentinel2Stacked.py",
-        "-a",
-        vrt_fname,
-        "-z",
-        angles_fname,
+        "--safedir",
+        safe_dir,
+        "--tempdir",
+        work_dir,
         "-o",
         out_fname,
         "--cloudbufferdistance",
