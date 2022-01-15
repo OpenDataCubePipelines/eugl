@@ -40,7 +40,7 @@ import yaml
 from wagl.data import write_img
 from wagl.acquisition import acquisitions
 from wagl.constants import BandType
-from wagl.logs import TASK_LOGGER
+from wagl.logging import ERROR_LOGGER
 from wagl.singlefile_workflow import DataStandardisation
 
 from eugl.fmask import run_command, CommandError
@@ -191,7 +191,7 @@ class GverifyTask(luigi.Task):
                               resampling=acq_info.preferred_resampling_method)
         except (ValueError, FileNotFoundError, CommandError) as ve:
             error_msg = str(ve)
-            TASK_LOGGER.error('gverify was not executed because:\n {}'.format(error_msg))
+            ERROR_LOGGER.error('gverify was not executed because:\n {}'.format(error_msg))
         finally:
             # Write out runtime data to be processed by the gqa task
             run_args = {
@@ -304,7 +304,7 @@ class GQATask(luigi.Task):
                 }
 
         except (StopIteration, FileNotFoundError) as _:
-            TASK_LOGGER.error(
+            ERROR_LOGGER.error(
                 "Gverify results file contains no tabulated data; {}".format(
                     self.input()['results'].path)
             )
