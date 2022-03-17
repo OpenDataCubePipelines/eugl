@@ -339,7 +339,7 @@ def _sentinel2_fmask(
     cmd = [
         "fmask_sentinel2Stacked.py",
         "-a",
-        update_vrt_fname,
+        vrt_fname,
         "-z",
         angles_fname,
         "-o",
@@ -347,7 +347,7 @@ def _sentinel2_fmask(
         "--cloudbufferdistance",
         str(cloud_buffer_distance),
         "--shadowbufferdistance",
-        str(cloud_buffer_distance)
+        str(cloud_shadow_buffer_distance)
     ]
 
     if parallax_test:
