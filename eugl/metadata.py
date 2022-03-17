@@ -135,3 +135,38 @@ def fmask_metadata(
 
     with open(out_fname, "w") as src:
         yaml.safe_dump(md, src, default_flow_style=False, indent=4)
+
+
+def grab_offset_dict(dataset_path):
+    """grab_offset_dict: get the offset values from zipped XML metadata file
+
+    :param dataset_path: S2 dataset (zip file path)
+    :returns metadata dictionary: {band_id: offset_value}
+    """
+
+    archive = zipfile.ZipFile(dataset_path)
+    xml_root = xml_via_safe(archive, dataset_path)
+
+    # ESA image ids
+    esa_ids = [
+        "B01",
+        "B02",
+        "B03",
+        "B04",
+        "B05",
+        "B06",
+        "B07",
+        "B08",
+        "B8A",
+        "B09",
+        "B10",
+        "B11",
+        "B12",
+        "TCI",
+    ]
+
+    # ESA L1C upgrade introducing scaling/offset
+    search_term = './*/Product_Image_Characteristics/Radiometric_Offset_List/RADIO_ADD_OFFSET'
+
+    return {re.sub(r'B[0]?', '', esa_ids[int(x.attrib['band_id'])]): int(x.text)
+               for x in xml_root.findall(search_term)}
