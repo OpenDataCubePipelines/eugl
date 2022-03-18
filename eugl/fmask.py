@@ -18,7 +18,7 @@ from pathlib import Path
 from wagl.acquisition import acquisitions
 from wagl.constants import BandType
 
-from eugl.metadata import fmask_metadata
+from eugl.metadata import fmask_metadata, grab_offset_dict
 
 _LOG = logging.getLogger(__name__)
 
@@ -230,18 +230,118 @@ def _sentinel2_fmask(
     """
     Fmask algorithm for Sentinel-2.
     """
-    cmd = ["unzip", dataset_path, "-d", work_dir]
+    # temp_vrt_fname: save vrt with offest values in metadata
+    temp_vrt_fname = pjoin(work_dir, "reflective.tmp.vrt")
+    # vrt_fname: save vrt with applied offest values by gdal_translate
+    vrt_fname = pjoin(work_dir, "reflective.vrt")
+    angles_fname = pjoin(work_dir, ".angles.img")
+
+    acqs = []
+    for grp in container.groups:
+        acqs.extend(container.get_acquisitions(grp, granule, False))
+
+    band_ids = [acq.band_id for acq in acqs]
+    required_ids = [str(i) for i in range(1, 13)]
+    required_ids.insert(8, "8A")
+
+    acq = container.get_acquisitions(granule=granule)[0]
+
+    # zipfile extraction
+    xml_out_fname = pjoin(work_dir, Path(acq.granule_xml).name)
+    if ".zip" in acq.uri:
+        cmd = ["unzip", "-p", dataset_path, acq.granule_xml, ">", xml_out_fname]
+        run_command(cmd, work_dir)
+
+    offsets = grab_offset_dict(dataset_path)
+
+    # vrt creation
+    cmd = [
+        "gdalbuildvrt",
+        "-resolution",
+        "user",
+        "-tr",
+        "20",
+        "20",
+        "-separate",
+        "-overwrite",
+        temp_vrt_fname,
+    ]
+
+    # when we use band to create VRT, also pass its offset values
+    # to offset_values list, which will be used in gdal_edit later
+    offset_values = []
+
+    for band_id in required_ids:
+
+        acq = acqs[band_ids.index(band_id)]
+
+        # if we process data before 2021-Nov, we will have an emtry
+        # offset_dict because there is no offset values in metadata.xml.
+        # ideally, we should create a default offset_dict
+        # with same keys but all values are 0, but S2 band_ids
+        # is hard to use a simple loop to create.
+        if band_id in offsets:
+            offset_values.append(offsets[band_id])
+        else:
+            offset_values.append(0)
+
+        if ".zip" in acq.uri:
+
+            jp2_path = acq.uri.replace("zip:", "/vsizip/").replace("!", "")
+            cmd.append(jp2_path)
+
+        else:
+            cmd.append(acq.uri)
+
     run_command(cmd, work_dir)
 
-    safe_dir = str(list(Path(work_dir).iterdir())[0])
+    # use this CLI to attach offset values to VRT as metadata info
+    cmd = [
+            "gdal_edit.py",
+            "-ro",
+            "-offset",
+            ' '.join([str(e) for e in offset_values]),
+            temp_vrt_fname
+        ]
+
+    run_command(cmd, work_dir)
+
+    # use this CLI to apply offset metadata for the bands
+    cmd = [
+            "gdal_translate",
+            temp_vrt_fname,
+            vrt_fname,
+            "-unscale"
+        ]
+
+    run_command(cmd, work_dir)
+
+    # angles generation
+    if ".zip" in acq.uri:
+        cmd = [
+            "fmask_sentinel2makeAnglesImage.py",
+            "-i",
+            xml_out_fname,
+            "-o",
+            angles_fname,
+        ]
+    else:
+        cmd = [
+            "fmask_sentinel2makeAnglesImage.py",
+            "-i",
+            acq.granule_xml,
+            "-o",
+            angles_fname,
+        ]
+    run_command(cmd, work_dir)
 
     # run fmask
     cmd = [
         "fmask_sentinel2Stacked.py",
-        "--safedir",
-        safe_dir,
-        "--tempdir",
-        work_dir,
+        "-a",
+        vrt_fname,
+        "-z",
+        angles_fname,
         "-o",
         out_fname,
         "--cloudbufferdistance",
