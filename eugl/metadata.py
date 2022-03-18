@@ -7,7 +7,9 @@ except ImportError:
 import yaml
 import rasterio
 from idl_functions import histogram
-
+from wagl.acquisition import xml_via_safe
+import zipfile
+import re
 
 # TODO: Fix update to merge the dictionaries
 
@@ -166,7 +168,11 @@ def grab_offset_dict(dataset_path):
     ]
 
     # ESA L1C upgrade introducing scaling/offset
-    search_term = './*/Product_Image_Characteristics/Radiometric_Offset_List/RADIO_ADD_OFFSET'
+    search_term = (
+        "./*/Product_Image_Characteristics/Radiometric_Offset_List/RADIO_ADD_OFFSET"
+    )
 
-    return {re.sub(r'B[0]?', '', esa_ids[int(x.attrib['band_id'])]): int(x.text)
-               for x in xml_root.findall(search_term)}
+    return {
+        re.sub(r"B[0]?", "", esa_ids[int(x.attrib["band_id"])]): int(x.text)
+        for x in xml_root.findall(search_term)
+    }
