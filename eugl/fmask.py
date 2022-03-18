@@ -297,22 +297,17 @@ def _sentinel2_fmask(
 
     # use this CLI to attach offset values to VRT as metadata info
     cmd = [
-            "gdal_edit.py",
-            "-ro",
-            "-offset",
-            ' '.join([str(e) for e in offset_values]),
-            temp_vrt_fname
-        ]
+        "gdal_edit.py",
+        "-ro",
+        "-offset",
+        ' '.join([str(e) for e in offset_values]),
+        temp_vrt_fname
+    ]
 
     run_command(cmd, work_dir)
 
     # use this CLI to apply offset metadata for the bands
-    cmd = [
-            "gdal_translate",
-            temp_vrt_fname,
-            vrt_fname,
-            "-unscale"
-        ]
+    cmd = ["gdal_translate",  temp_vrt_fname,  vrt_fname, "-unscale"]
 
     run_command(cmd, work_dir)
 

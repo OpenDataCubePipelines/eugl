@@ -506,7 +506,7 @@ def calculate_gqa(df, tr, resolution, stddev=1.0, iterations=1, correl=0.75):
     # Calculate the Circular Error Probable 90 (CEP90)
     # Formulae taken from:
     # http://calval.cr.usgs.gov/JACIE_files/JACIE04/files/1Ross16.pdf
-    delta_r = (subset.X_Residual ** 2 + subset.Y_Residual ** 2) ** 0.5
+    delta_r = (subset.X_Residual**2 + subset.Y_Residual**2) ** 0.5
     cep90 = delta_r.quantile(0.9)
 
     abs_ = {
