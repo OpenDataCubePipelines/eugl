@@ -150,6 +150,70 @@ def fmask_metadata(
         yaml.safe_dump(md, src, default_flow_style=False, indent=4)
 
 
+def s2cloudless_metadata(
+    prob_out_fname,
+    mask_out_fname,
+    metadata_out_fname,
+    threshold,
+    average_over,
+    dilation_size
+):
+    """
+    Produce a yaml metadata document.
+
+    :param prob_out_fname:
+        A fully qualified name to the file containing the output
+        from the probability layer from the s2cloudless algorithm.
+    :type fname: str
+
+    :param mask_out_fname:
+        A fully qualified name to the file containing the output
+        from the mask layer from the s2cloudless algorithm.
+    :type fname: str
+
+    :param metadata_out_fname:
+        A fully qualified name to a file that will contain the
+        metadata.
+    :type metadata_out_fname: str
+
+    :param threshold:
+    :param average_over:
+    :param dilation_size:
+
+    :return:
+        None.  Metadata is written directly to disk.
+    :rtype: None
+    """
+    with rasterio.open(prob_out_fname) as ds:
+        hist = histogram(ds.read(1), minv=0, maxv=2)["histogram"]
+
+    # base info (software versions)
+    base_info = _get_s2cloudless_metadata()
+
+
+    # info will be based on the valid pixels only (exclude 0)
+    # scaled probability density function
+    pdf = hist[1:] / hist[1:].sum() * 100
+
+    md = {
+        "parameters": {
+            "threshold": threshold,
+            "average_over": average_over,
+            "dilation_size": dilation_size,
+        },
+        "percent_class_distribution": {
+            "clear": float(pdf[0]),
+            "cloud": float(pdf[1]),
+        },
+    }
+
+    for key, value in base_info.items():
+        md[key] = value
+
+    with open(metadata_out_fname, "w") as src:
+        yaml.safe_dump(md, src, default_flow_style=False, indent=4)
+
+
 def grab_offset_dict(dataset_path):
     """grab_offset_dict: get the offset values from zipped XML metadata file
 
