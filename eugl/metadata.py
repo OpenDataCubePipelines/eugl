@@ -156,7 +156,7 @@ def s2cloudless_metadata(
     metadata_out_fname,
     threshold,
     average_over,
-    dilation_size
+    dilation_size,
 ):
     """
     Produce a yaml metadata document.
@@ -190,7 +190,6 @@ def s2cloudless_metadata(
     # base info (software versions)
     base_info = _get_s2cloudless_metadata()
 
-
     # info will be based on the valid pixels only (exclude 0)
     # scaled probability density function
     pdf = hist[1:] / hist[1:].sum() * 100
@@ -201,10 +200,7 @@ def s2cloudless_metadata(
             "average_over": average_over,
             "dilation_size": dilation_size,
         },
-        "percent_class_distribution": {
-            "clear": float(pdf[0]),
-            "cloud": float(pdf[1]),
-        },
+        "percent_class_distribution": {"clear": float(pdf[0]), "cloud": float(pdf[1]),},
     }
 
     for key, value in base_info.items():

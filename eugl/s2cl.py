@@ -10,8 +10,18 @@ import numpy as np
 from wagl.acquisition import acquisitions
 from eugl.metadata import s2cloudless_metadata
 
-S2CL_BANDS = ["BAND-1", "BAND-2", "BAND-4", "BAND-5", "BAND-8",
-              "BAND-8A", "BAND-9", "BAND-10", "BAND-11", "BAND-12"]
+S2CL_BANDS = [
+    "BAND-1",
+    "BAND-2",
+    "BAND-4",
+    "BAND-5",
+    "BAND-8",
+    "BAND-8A",
+    "BAND-9",
+    "BAND-10",
+    "BAND-11",
+    "BAND-12",
+]
 
 
 THRESHOLD = 0.4
@@ -19,8 +29,9 @@ AVERAGE_OVER = 4
 DILATION_SIZE = 2
 
 
-def s2cloudless_array(band_data,
-                      threshold=THRESHOLD, average_over=AVERAGE_OVER, dilation_size=DILATION_SIZE):
+def s2cloudless_array(
+    band_data, threshold=THRESHOLD, average_over=AVERAGE_OVER, dilation_size=DILATION_SIZE
+):
     """
     :param band_data: array of shape (1, y, x, band_count=10) of DN values between 0.0 and 1.0
     :return: dict of arrays of shape (1, y, x) with entries 'cloud_prob' and 'cloud_mask'
@@ -36,16 +47,24 @@ def s2cloudless_array(band_data,
     cloud_prob = np.where(~noncontiguous, cloud_prob, np.nan)
     cloud_mask = np.where(~noncontiguous, cloud_mask + 1, 0)
 
-    return {'cloud_prob': cloud_prob, 'cloud_mask': cloud_mask}
+    return {"cloud_prob": cloud_prob, "cloud_mask": cloud_mask}
 
 
-def s2cloudless_container(container, granule=None,
-                          threshold=THRESHOLD, average_over=AVERAGE_OVER, dilation_size=DILATION_SIZE):
+def s2cloudless_container(
+    container,
+    granule=None,
+    threshold=THRESHOLD,
+    average_over=AVERAGE_OVER,
+    dilation_size=DILATION_SIZE,
+):
     """
     :param container: wagl acquisition container
     :return: cloud_prob and cloud_mask with georeference info
     """
-    bands = {f'BAND-{band.band_id}': band for band in get_all_acquisitions(container, granule=granule)}
+    bands = {
+        f"BAND-{band.band_id}": band
+        for band in get_all_acquisitions(container, granule=granule)
+    }
     # reproject every band to band-1 (with resolution 60m x 60m)
     band_1 = bands[S2CL_BANDS[0]]
 
@@ -58,24 +77,36 @@ def s2cloudless_container(container, granule=None,
     def reproject(band):
         result = np.empty(band_1.tile_size)
 
-        rio_reproject(band.data(),
-                      result,
-                      src_transform=band_transform(band),
-                      dst_transform=band_transform(band_1),
-                      src_nodata=band.no_data,
-                      dst_nodata=band_1.no_data,
-                      src_crs=band_crs(band),
-                      dst_crs=band_crs(band_1),
-                      resampling=Resampling.bilinear)
+        rio_reproject(
+            band.data(),
+            result,
+            src_transform=band_transform(band),
+            dst_transform=band_transform(band_1),
+            src_nodata=band.no_data,
+            dst_nodata=band_1.no_data,
+            src_crs=band_crs(band),
+            dst_crs=band_crs(band_1),
+            resampling=Resampling.bilinear,
+        )
 
         return result
 
-    band_data = np.stack([reproject(bands[band_name])[np.newaxis, ...] for band_name in S2CL_BANDS],
-                         axis=3) / 10000.0
+    band_data = (
+        np.stack(
+            [reproject(bands[band_name])[np.newaxis, ...] for band_name in S2CL_BANDS],
+            axis=3,
+        )
+        / 10000.0
+    )
 
-    result = s2cloudless_array(band_data, threshold=threshold, average_over=average_over, dilation_size=dilation_size)
+    result = s2cloudless_array(
+        band_data,
+        threshold=threshold,
+        average_over=average_over,
+        dilation_size=dilation_size,
+    )
 
-    return {**result, 'crs': band_crs(band_1), 'transform': band_transform(band_1)}
+    return {**result, "crs": band_crs(band_1), "transform": band_transform(band_1)}
 
 
 def s2cloudless_processing(
@@ -88,7 +119,7 @@ def s2cloudless_processing(
     acq_parser_hint=None,
     threshold=THRESHOLD,
     average_over=AVERAGE_OVER,
-    dilation_size=DILATION_SIZE
+    dilation_size=DILATION_SIZE,
 ):
     """
     Execute the s2cloudless process.
@@ -133,10 +164,14 @@ def s2cloudless_processing(
     """
     container = acquisitions(dataset_path, acq_parser_hint)
 
-    result = s2cloudless_container(container,
-                                   threshold=threshold, average_over=average_over, dilation_size=dilation_size)
+    result = s2cloudless_container(
+        container,
+        threshold=threshold,
+        average_over=average_over,
+        dilation_size=dilation_size,
+    )
 
-    cloud_prob = result['cloud_prob']
+    cloud_prob = result["cloud_prob"]
 
     export_kwargs = dict(
         mode="w",
@@ -145,8 +180,8 @@ def s2cloudless_processing(
         height=cloud_prob.shape[1],
         width=cloud_prob.shape[2],
         count=1,
-        crs=result['crs'],
-        transform=result['transform'],
+        crs=result["crs"],
+        transform=result["transform"],
     )
 
     with rasterio.open(
@@ -155,24 +190,21 @@ def s2cloudless_processing(
         nodata=np.nan,
         **export_kwargs,
     ) as output:
-        output.write(result['cloud_prob'])
+        output.write(result["cloud_prob"])
 
     with rasterio.open(
-        pjoin(workdir, mask_out_fname),
-        dtype=rasterio.uint8,
-        nodata=0,
-        **export_kwargs
+        pjoin(workdir, mask_out_fname), dtype=rasterio.uint8, nodata=0, **export_kwargs
     ) as output:
 
-        output.write(result['cloud_mask'])
+        output.write(result["cloud_mask"])
 
     s2cloudless_metadata(
-      pjoin(workdir, prob_out_fname),
-      pjoin(workdir, mask_out_fname),
-      pjoin(workdir, metadata_out_fname),
-      threshold,
-      average_over,
-      dilation_size,
+        pjoin(workdir, prob_out_fname),
+        pjoin(workdir, mask_out_fname),
+        pjoin(workdir, metadata_out_fname),
+        threshold,
+        average_over,
+        dilation_size,
     )
 
 
