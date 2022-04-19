@@ -9,6 +9,7 @@ from wagl.acquisition import acquisitions
 from .metadata import _get_s2cloudless_metadata
 
 L1 = '/g/data/up71/projects/ARD_implementation_validation/ARD_fieldwork_L1C/S2B_MSIL1C_20180724T000239_N0206_R030_T55HGB_20180724T011606.zip'
+L1 = '/g/data/fj7/Copernicus/Sentinel-2/MSI/L1C/2019/2019-01/30S115E-35S120E/S2A_MSIL1C_20190117T021341_N0207_R060_T50HLK_20190117T063547.zip'
 
 S2CL_BANDS = ["BAND-1", "BAND-2", "BAND-4", "BAND-5", "BAND-8",
               "BAND-8A", "BAND-9", "BAND-10", "BAND-11", "BAND-12"]
@@ -45,6 +46,7 @@ def s2cloudless(container, threshold=0.4, average_over=4, dilation_size=2):
                       dst_crs=band_crs(band_1),
                       resampling=Resampling.bilinear)
 
+        print(result)
         return result
 
     band_data = np.stack([reproject(bands[band_name])[np.newaxis, ...] for band_name in S2CL_BANDS],
@@ -72,8 +74,17 @@ def s2cloudless(container, threshold=0.4, average_over=4, dilation_size=2):
         transform=band_transform(band_1),
     )
 
+    for index, band_name in enumerate(S2CL_BANDS):
+        with rasterio.open(
+            f"{band_name}.tif",
+            dtype=band_data.dtype,
+            nodata=np.nan,
+            **export_kwargs,
+        ) as output:
+            output.write(band_data[:, :, :, index])
+
     with rasterio.open(
-        f"output_cloud_prob.tif",
+        f"cloud_prob.tif",
         dtype=cloud_prob.dtype,
         nodata=np.nan,
         **export_kwargs,
@@ -81,7 +92,7 @@ def s2cloudless(container, threshold=0.4, average_over=4, dilation_size=2):
         output.write(cloud_prob)
 
     with rasterio.open(
-        f"output_cloud_mask.tif",
+        f"cloud_mask.tif",
         dtype=rasterio.uint8,
         nodata=0,
         **export_kwargs
