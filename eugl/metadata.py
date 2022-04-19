@@ -34,6 +34,17 @@ def _get_fmask_metadata():
     return base_info
 
 
+def _get_s2cloudless_metadata():
+    base_info = _get_eugl_metadata()
+    dist = distribution("s2cloudless")
+    base_info["software_versions"]["s2cloudless"] = {
+        "version": dist.version,
+        "repo_url": dist.metadata.get("Home-page"),
+    }
+
+    return base_info
+
+
 def get_gqa_metadata(gverify_executable):
     """get_gqa_metadata: provides processing metadata for gqa_processing
 
