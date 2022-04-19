@@ -184,7 +184,7 @@ def s2cloudless_metadata(
         None.  Metadata is written directly to disk.
     :rtype: None
     """
-    with rasterio.open(prob_out_fname) as ds:
+    with rasterio.open(mask_out_fname) as ds:
         hist = histogram(ds.read(1), minv=0, maxv=2)["histogram"]
 
     # base info (software versions)
