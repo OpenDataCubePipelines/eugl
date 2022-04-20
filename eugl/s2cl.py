@@ -195,7 +195,6 @@ def s2cloudless_processing(
     with rasterio.open(
         pjoin(workdir, mask_out_fname), dtype=rasterio.uint8, nodata=0, **export_kwargs
     ) as output:
-
         output.write(result["cloud_mask"])
 
     s2cloudless_metadata(
