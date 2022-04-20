@@ -75,7 +75,7 @@ def s2cloudless_container(
         return band.gridded_geo_box().transform
 
     def reproject(band):
-        result = np.empty(band_1.tile_size)
+        result = np.empty((band_1.lines, band_1.samples))
 
         rio_reproject(
             band.data(),
