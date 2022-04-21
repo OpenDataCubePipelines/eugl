@@ -159,8 +159,17 @@ def s2cloudless_processing(
         A hinting helper for the acquisitions parser. Default is None.
 
     :param threshold:
+        Cloud probability threshold. All pixels with cloud probability
+        above threshold value are masked as cloudy pixels.
+
     :param average_over:
+        Size of the disk in pixels for performing convolution
+        (averaging probability over pixels). Value 0 means do not
+        perform this post-processing step.
+
     :param dilation_size:
+        Size of the disk in pixels for performing dilation. Value 0
+        means do not perform this post-processing step.
     """
     container = acquisitions(dataset_path, acq_parser_hint)
 
