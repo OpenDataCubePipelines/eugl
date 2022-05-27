@@ -175,6 +175,7 @@ def s2cloudless_processing(
 
     result = s2cloudless_container(
         container,
+        granule=granule,
         threshold=threshold,
         average_over=average_over,
         dilation_size=dilation_size,
