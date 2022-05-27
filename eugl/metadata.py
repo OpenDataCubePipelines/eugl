@@ -200,7 +200,10 @@ def s2cloudless_metadata(
             "average_over": average_over,
             "dilation_size": dilation_size,
         },
-        "percent_class_distribution": {"clear": float(pdf[0]), "cloud": float(pdf[1]),},
+        "percent_class_distribution": {
+            "clear": float(pdf[0]),
+            "cloud": float(pdf[1]),
+        },
     }
 
     for key, value in base_info.items():

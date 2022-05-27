@@ -139,7 +139,9 @@ def mndwi(wagl_h5_file, granule, out_fname):
 
         # create output h5 attributes
         desc = "MNDWI derived with {0} and {1} ({2} reflectances)".format(
-            psplit(green_path)[-1], psplit(swir_path)[-1], prod,
+            psplit(green_path)[-1],
+            psplit(swir_path)[-1],
+            prod,
         )
 
         attrs = {
