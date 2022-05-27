@@ -33,7 +33,8 @@ def s2cloudless_array(
     band_data, threshold=THRESHOLD, average_over=AVERAGE_OVER, dilation_size=DILATION_SIZE
 ):
     """
-    :param band_data: array of shape (1, y, x, band_count=10) of DN values between 0.0 and 1.0
+    :param band_data:
+        array of shape (1, y, x, band_count=10) of DN values between 0.0 and 1.0
     :return: dict of arrays of shape (1, y, x) with entries 'cloud_prob' and 'cloud_mask'
     """
     cloud_detector = S2PixelCloudDetector(
