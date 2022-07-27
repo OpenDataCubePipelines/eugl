@@ -14,6 +14,7 @@ from wagl.acquisition.landsat import (
     Landsat5Acquisition,
     Landsat7Acquisition,
     Landsat8Acquisition,
+    Landsat9Acquisition,
 )
 
 from wagl.constants import GroupName, DatasetName
@@ -129,6 +130,22 @@ class Landsat8AcquisitionInfo(LandsatAcquisitionInfo):
         )
 
 
+class Landsat9AcquisitionInfo(LandsatAcquisitionInfo):
+    def land_band(self, product="NBAR"):
+        return "{}/RES-GROUP-1/{}/{}".format(
+            self.granule,
+            GroupName.STANDARD_GROUP.value,
+            DS_FMT.format(product=product, band_name="BAND-6"),
+        )
+
+    def ocean_band(self, product="NBAR"):
+        return "{}/RES-GROUP-1/{}/{}".format(
+            self.granule,
+            GroupName.STANDARD_GROUP.value,
+            DS_FMT.format(product=product, band_name="BAND-2"),
+        )
+
+
 class Sentinel2AcquisitionInfo(AcquisitionInfo):
     def land_band(self, product="NBAR"):
         return "{}/RES-GROUP-1/{}/{}".format(
@@ -196,5 +213,7 @@ def acquisition_info(container, granule=None):
         return Landsat7AcquisitionInfo(container, granule, acq)
     elif isinstance(acq, Landsat8Acquisition):
         return Landsat8AcquisitionInfo(container, granule, acq)
+    elif isinstance(acq, Landsat9Acquisition):
+        return Landsat9AcquisitionInfo(container, granule, acq)
     else:
         raise ValueError("Unknown acquisition type")
