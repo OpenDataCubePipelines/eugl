@@ -220,7 +220,13 @@ def grab_offset_dict(dataset_path):
     :returns metadata dictionary: {band_id: offset_value}
     """
 
-    archive = zipfile.ZipFile(dataset_path)
+    try:
+        archive = zipfile.ZipFile(dataset_path)
+    except IsADirectoryError:
+        # not a .zip archive
+        # in the NRT pipeline, the offsets have already been applied
+        return {}
+
     xml_root = xml_via_safe(archive, dataset_path)
 
     # ESA image ids
