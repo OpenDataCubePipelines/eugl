@@ -409,9 +409,12 @@ def collect_gcp(fix_location, landsat_scenes, result_file):
             row = "{0:0=3d}".format(scene["row"])
             _LOG.debug("collecting GCPs from {} {}".format(path, row))
             scene_gcp_file = pjoin(fix_location, path, row, "points.txt")
-            with open(scene_gcp_file) as src:
-                for line in src:
-                    dest.write(line)
+            try:
+                with open(scene_gcp_file) as src:
+                    for line in src:
+                        dest.write(line)
+            except FileNotFoundError:
+                pass
 
 
 def parse_gverify(res_filepath):
