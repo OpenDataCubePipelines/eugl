@@ -127,7 +127,6 @@ def mndwi(wagl_h5_file, granule, out_fname):
     mndwi_grp = h5_fid.create_group("mndwi")
 
     for i, prod in enumerate(products):
-
         # search the h5 groups & get paths to the green and swir bands
         green_path, swir_path = get_mndwi_bands(granule, platform_id, prod, paths)
 
