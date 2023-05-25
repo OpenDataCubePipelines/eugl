@@ -272,7 +272,6 @@ def _sentinel2_fmask(
     offset_values = []
 
     for band_id in required_ids:
-
         acq = acqs[band_ids.index(band_id)]
 
         # if we process data before 2021-Nov, we will have an emtry
@@ -286,7 +285,6 @@ def _sentinel2_fmask(
             offset_values.append(0)
 
         if ".zip" in acq.uri:
-
             jp2_path = acq.uri.replace("zip:", "/vsizip/").replace("!", "")
             cmd.append(jp2_path)
 
@@ -454,7 +452,6 @@ def fmask_cogtif(fname, out_fname, platform):
     """
 
     with tempfile.TemporaryDirectory(dir=dirname(fname), prefix="cogtif-") as tmpdir:
-
         # set the platform specific options for gdal function
 
         # setting the fmask's overview block size depending on the specific sensor.

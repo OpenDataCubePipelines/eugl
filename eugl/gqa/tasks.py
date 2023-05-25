@@ -59,7 +59,6 @@ write_yaml = partial(
 
 
 class GverifyTask(luigi.Task):
-
     # Imagery arguments
     level1 = luigi.Parameter()
     acq_parser_hint = luigi.OptionalParameter(default="")
@@ -112,12 +111,20 @@ class GverifyTask(luigi.Task):
         return all(os.path.isfile(_f) for _f in self.output().values())
 
     def run(self):
-
         # Subdirectory in the task workdir
         workdir = pjoin(self.workdir, "gverify")
 
         if not exists(workdir):
             os.makedirs(workdir)
+
+        for loc in [
+            self.executable,
+            self.root_fix_qa_location,
+            self.landsat_scenes_shapefile,
+            self.reference_directory,
+        ]:
+            if not exists(loc):
+                raise FileNotFoundError(loc)
 
         # Get acquisition metadata, limit it to executing granule
         container = acquisitions(self.level1, self.acq_parser_hint).get_granule(
@@ -230,7 +237,6 @@ class GverifyTask(luigi.Task):
     def _run_gverify(
         self, reference, source, outdir, extra=None, resampling=Resampling.bilinear
     ):
-
         resampling_method = {
             Resampling.nearest: "NN",
             Resampling.bilinear: "BI",
@@ -343,7 +349,6 @@ class GQATask(luigi.Task):
             if (
                 "error_msg" not in gverify_args or gverify_args["error_msg"] == ""
             ):  # Gverify successfully ran
-
                 rh, tr, df = parse_gverify(self.input()["results"].path)
                 res = calculate_gqa(
                     df,
