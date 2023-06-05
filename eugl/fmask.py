@@ -263,7 +263,9 @@ def _landsat_fmask(
     fmask_config.setCloudBufferSize(int(cloud_buffer_distance / toa_img_info.xRes))
     fmask_config.setShadowBufferSize(int(cloud_shadow_buffer_distance / toa_img_info.xRes))
 
-    fmask.doFmask(fmask_filenames, fmask_config)
+    from fmask import fmask as fmask_algorithm
+
+    fmask_algorithm.doFmask(fmask_filenames, fmask_config)
 
     # TODO: Clean up thermal/angles/saturation/toa ?
 
