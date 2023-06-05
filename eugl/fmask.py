@@ -27,6 +27,7 @@ _LOG = logging.getLogger(__name__)
 
 os.environ["CPL_ZIP_ENCODING"] = "UTF-8"
 
+
 # NOTE
 # This module was quickly put together to achieve the deadlines
 # and have an operation version of Fmask working for both S2 and Landsat.
@@ -53,8 +54,8 @@ def url_to_gdal(url: str):
     fmask tooling uses gdal, not rio, so we need to do the same conversion.
 
 
-    >>> rio_url = 'tar:///tmp/LC08_L1GT_109080_20210601_20210608_02_T2.tar!/LC08_L1GT_109080_20210601_20210608_02_T2_B1.TIF'
-    >>> url_to_gdal(rio_url)
+    >>> url = 'tar:///tmp/LC08_L1GT_109080_20210601_20210608_02_T2.tar!/LC08_L1GT_109080_20210601_20210608_02_T2_B1.TIF'
+    >>> url_to_gdal(url)
     '/vsitar//tmp/LC08_L1GT_109080_20210601_20210608_02_T2.tar/LC08_L1GT_109080_20210601_20210608_02_T2_B1.TIF'
     """
     # rio is considering removing this, so it's confined here to one place.
@@ -95,9 +96,7 @@ def run_command(command, work_dir, timeout=None, command_name=None):
         if timed_out:
             raise CommandError('"%s" timed out' % (command_name))
         else:
-            raise CommandError(
-                '"%s" failed with return code: %s' % (command_name, str(_proc.returncode))
-            )
+            raise CommandError('"%s" failed with return code: %s' % (command_name, str(_proc.returncode)))
     else:
         _LOG.debug(stdout.decode("utf-8"))
 
@@ -129,9 +128,7 @@ def extract_mtl(archive_path: Path, output_folder: Path) -> Path:
                     zipf.extract(member, output_folder)
 
     else:
-        raise ValueError(
-            "Invalid archive format. Only .tar, .tar.gz, .zip are supported."
-        )
+        raise ValueError("Invalid archive format. Only .tar, .tar.gz, .zip are supported.")
 
     if len(mtl_files) == 0:
         raise ValueError("No _MTL.txt file found in the archive.")
@@ -153,16 +150,12 @@ def _landsat_fmask(
     """
     acquisition_path = Path(acquisition.pathname)
 
-    mtl_fname = extract_mtl(
-        acquisition_path, Path(work_dir) / "fmask_imagery2"
-    ).as_posix()
+    mtl_fname = extract_mtl(acquisition_path, Path(work_dir) / "fmask_imagery").as_posix()
 
     container = acquisitions(str(acquisition_path))
     # [-1] index Avoids panchromatic band
     acqs = sorted(
-        container.get_acquisitions(
-            group=container.groups[-1], only_supported_bands=False
-        ),
+        container.get_acquisitions(group=container.groups[-1], only_supported_bands=False),
         key=lambda a: a.band_id,
     )
 
@@ -173,17 +166,11 @@ def _landsat_fmask(
     mask_fname = pjoin(work_dir, "saturation-mask.img")
     toa_fname = pjoin(work_dir, "toa-reflectance.img")
 
-    reflective_bands = [
-        url_to_gdal(acq.uri) for acq in acqs if acq.band_type is BandType.REFLECTIVE
-    ]
-    thermal_bands = [
-        url_to_gdal(acq.uri) for acq in acqs if acq.band_type is BandType.THERMAL
-    ]
+    reflective_bands = [url_to_gdal(acq.uri) for acq in acqs if acq.band_type is BandType.REFLECTIVE]
+    thermal_bands = [url_to_gdal(acq.uri) for acq in acqs if acq.band_type is BandType.THERMAL]
 
     if not thermal_bands:
-        raise NotImplementedError(
-            "python-fmask requires thermal bands to process landsat imagery"
-        )
+        raise NotImplementedError("python-fmask requires thermal bands to process landsat imagery")
 
     cmd = [
         "gdal_merge.py",
@@ -198,17 +185,20 @@ def _landsat_fmask(
     ]
     run_command(cmd, work_dir)
 
-    # angles
-    cmd = [
-        "fmask_usgsLandsatMakeAnglesImage.py",
-        "-m",
-        mtl_fname,
-        "-t",
-        ref_fname,
-        "-o",
-        angles_fname,
-    ]
-    run_command(cmd, work_dir)
+    from fmask import landsatangles
+    from fmask import config
+    from rios import fileinfo
+
+    mtlInfo = config.readMTLFile(mtl_fname)
+
+    imgInfo = fileinfo.ImageInfo(ref_fname)
+    corners = landsatangles.findImgCorners(ref_fname, imgInfo)
+    nadirLine = landsatangles.findNadirLine(corners)
+
+    extentSunAngles = landsatangles.sunAnglesForExtent(imgInfo, mtlInfo)
+    satAzimuth = landsatangles.satAzLeftRight(nadirLine)
+
+    landsatangles.makeAnglesImage(ref_fname, angles_fname, nadirLine, extentSunAngles, satAzimuth, imgInfo)
 
     # saturation
     cmd = [
