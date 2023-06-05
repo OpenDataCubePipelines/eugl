@@ -21,6 +21,8 @@ from eugl.metadata import fmask_metadata, grab_offset_dict
 from wagl.acquisition import acquisitions, Acquisition
 from wagl.constants import BandType
 
+import rasterio.path
+
 _LOG = logging.getLogger(__name__)
 
 os.environ["CPL_ZIP_ENCODING"] = "UTF-8"
@@ -42,6 +44,21 @@ class CommandError(RuntimeError):
     """
 
     pass
+
+
+def url_to_gdal(url: str):
+    """
+    Convert a rio-like URL into gdal-compatible vsi paths.
+
+    fmask tooling uses gdal, not rio, so we need to do the same conversion.
+
+
+    >>> rio_url = 'tar:///tmp/LC08_L1GT_109080_20210601_20210608_02_T2.tar!/LC08_L1GT_109080_20210601_20210608_02_T2_B1.TIF'
+    >>> url_to_gdal(rio_url)
+    '/vsitar//tmp/LC08_L1GT_109080_20210601_20210608_02_T2.tar/LC08_L1GT_109080_20210601_20210608_02_T2_B1.TIF'
+    """
+    # rio is considering removing this, so it's confined here to one place.
+    return rasterio.path.parse_path(url).as_vsi()
 
 
 def run_command(command, work_dir, timeout=None, command_name=None):
@@ -92,57 +109,53 @@ def extract_mtl(archive_path: Path, output_folder: Path) -> Path:
     output_folder.mkdir(parents=True, exist_ok=True)
 
     mtl_files = []
+    if archive_path.is_dir():
+        for mtl in archive_path.rglob("*_MTL.txt"):
+            mtl_files.append(mtl.name)
+            (output_folder / mtl.name).write_bytes(mtl.read_bytes())
 
-    if archive_path.suffix in ['.tar', '.gz', '.tgz', '.bz2']:
-        with tarfile.open(archive_path, 'r') as tar:
+    elif archive_path.suffix in [".tar", ".gz", ".tgz", ".bz2"]:
+        with tarfile.open(archive_path, "r") as tar:
             for member in tar.getmembers():
-                if member.name.endswith('_MTL.txt'):
+                if member.name.endswith("_MTL.txt"):
                     mtl_files.append(member.name)
-                    tar.extract(member, output_folder)
+                    tar.extract(member, output_folder, set_attrs=False)
 
-    elif archive_path.suffix == '.zip':
-        with zipfile.ZipFile(archive_path, 'r') as zipf:
+    elif archive_path.suffix == ".zip":
+        with zipfile.ZipFile(archive_path, "r") as zipf:
             for member in zipf.namelist():
-                if member.endswith('_MTL.txt'):
+                if member.endswith("_MTL.txt"):
                     mtl_files.append(member)
                     zipf.extract(member, output_folder)
 
     else:
-        raise ValueError('Invalid archive format. Only .tar, .tar.gz, .zip are supported.')
+        raise ValueError(
+            "Invalid archive format. Only .tar, .tar.gz, .zip are supported."
+        )
 
     if len(mtl_files) == 0:
-        raise ValueError('No _MTL.txt file found in the archive.')
+        raise ValueError("No _MTL.txt file found in the archive.")
     elif len(mtl_files) > 1:
-        raise ValueError('Multiple _MTL.txt files found in the archive. ')
+        raise ValueError("Multiple _MTL.txt files found in the archive. ")
 
     return output_folder / mtl_files[0]
 
 
 def _landsat_fmask(
-        acquisition: Acquisition,
-        out_fname: str,
-        work_dir: str,
-        cloud_buffer_distance: float,
-        cloud_shadow_buffer_distance: float,
+    acquisition: Acquisition,
+    out_fname: str,
+    work_dir: str,
+    cloud_buffer_distance: float,
+    cloud_shadow_buffer_distance: float,
 ):
     """
     Fmask algorithm for Landsat.
     """
     acquisition_path = Path(acquisition.pathname)
-    if ".tar" in str(acquisition_path):
-        tmp_dir = Path(work_dir) / "fmask_imagery"
-        if not tmp_dir.is_dir():
-            tmp_dir.mkdir()
-        cmd = [
-            "tar",
-            "zxvf" if acquisition_path.suffix == ".gz" else "xvf",
-            str(acquisition_path),
-        ]
-        run_command(cmd, tmp_dir)
 
-        acquisition_path = tmp_dir
-
-    mtl_fname = extract_mtl(acquisition_path, Path(work_dir) / "fmask_imagery2")
+    mtl_fname = extract_mtl(
+        acquisition_path, Path(work_dir) / "fmask_imagery2"
+    ).as_posix()
 
     container = acquisitions(str(acquisition_path))
     # [-1] index Avoids panchromatic band
@@ -160,8 +173,12 @@ def _landsat_fmask(
     mask_fname = pjoin(work_dir, "saturation-mask.img")
     toa_fname = pjoin(work_dir, "toa-reflectance.img")
 
-    reflective_bands = [acq.uri for acq in acqs if acq.band_type is BandType.REFLECTIVE]
-    thermal_bands = [acq.uri for acq in acqs if acq.band_type is BandType.THERMAL]
+    reflective_bands = [
+        url_to_gdal(acq.uri) for acq in acqs if acq.band_type is BandType.REFLECTIVE
+    ]
+    thermal_bands = [
+        url_to_gdal(acq.uri) for acq in acqs if acq.band_type is BandType.THERMAL
+    ]
 
     if not thermal_bands:
         raise NotImplementedError(
@@ -179,7 +196,7 @@ def _landsat_fmask(
         ref_fname,
         *reflective_bands,
     ]
-    run_command(cmd, acquisition_path)
+    run_command(cmd, work_dir)
 
     # angles
     cmd = [
@@ -230,7 +247,7 @@ def _landsat_fmask(
         thm_fname,
         *thermal_bands,
     ]
-    run_command(cmd, acquisition_path)
+    run_command(cmd, work_dir)
 
     cmd = [
         "fmask_usgsLandsatStacked.py",
@@ -387,15 +404,15 @@ def _sentinel2_fmask(
 
 
 def fmask(
-    dataset_path,
-    granule,
-    out_fname,
-    metadata_out_fname,
-    workdir,
+    dataset_path: str,
+    granule: str,
+    out_fname: str,
+    metadata_out_fname: str,
+    workdir: str,
     acq_parser_hint=None,
-    cloud_buffer_distance=150.0,
-    cloud_shadow_buffer_distance=300.0,
-    parallax_test=False,
+    cloud_buffer_distance: float = 150.0,
+    cloud_shadow_buffer_distance: float = 300.0,
+    parallax_test: bool = False,
 ):
     """
     Execute the fmask process.
@@ -404,27 +421,22 @@ def fmask(
         A str containing the full file pathname to the dataset.
         The dataset can be either a directory or a file, and
         interpretable by wagl.acquisitions.
-    :type dataset_path: str
 
     :param granule:
         A str containing the granule name. This will is used to
         selectively process a given granule.
-    :type granule: str
 
     :param out_fname:
         A fully qualified name to a file that will contain the
         result of the Fmask algorithm.
-    :type out_fname: str
 
     :param metadata_out_fname:
         A fully qualified name to a file that will contain the
         metadata from the fmask process.
-    :type metadata_out_fname: str
 
     :param workdir:
         A fully qualified name to a directory that can be
         used as scratch space for fmask processing.
-    :type workdir: str
 
     :param acq_parser_hint:
         A hinting helper for the acquisitions parser. Default is None.
@@ -432,19 +444,16 @@ def fmask(
     :param cloud_buffer_distance:
         Distance (in metres) to buffer final cloud objects. Default
         is 150m.
-    :type cloud_buffer_distance: float
 
     :param cloud_shadow_buffer_distance:
         Distance (in metres) to buffer final cloud shadow objects.
         Default is 300m.
-    :type cloud_shadow_buffer_distance: float
 
     :param parallax_test:
         A bool of whether to turn on the parallax displacement test
         from Frantz (2018). Default is False.
         Setting this parameter to True has no effect for Landsat
         scenes.
-    :type parallax_test: bool
     """
     container = acquisitions(dataset_path, acq_parser_hint)
     with tempfile.TemporaryDirectory(dir=workdir, prefix="pythonfmask-") as tmpdir:
