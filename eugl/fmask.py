@@ -150,7 +150,8 @@ def _landsat_fmask(
     """
     acquisition_path = Path(acquisition.pathname)
 
-    mtl_fname = extract_mtl(acquisition_path, Path(work_dir) / "fmask_imagery").as_posix()
+    tmp_dir = Path(work_dir) / "fmask_imagery"
+    mtl_fname = extract_mtl(acquisition_path, tmp_dir).as_posix()
 
     container = acquisitions(str(acquisition_path))
     # [-1] index Avoids panchromatic band
@@ -186,45 +187,38 @@ def _landsat_fmask(
     run_command(cmd, work_dir)
 
     from fmask import landsatangles
+    from fmask import saturationcheck
+    from fmask import landsatTOA
+
     from fmask import config
     from rios import fileinfo
 
-    mtlInfo = config.readMTLFile(mtl_fname)
+    mtl_info = config.readMTLFile(mtl_fname)
 
-    imgInfo = fileinfo.ImageInfo(ref_fname)
-    corners = landsatangles.findImgCorners(ref_fname, imgInfo)
-    nadirLine = landsatangles.findNadirLine(corners)
+    img_info = fileinfo.ImageInfo(ref_fname)
+    corners = landsatangles.findImgCorners(ref_fname, img_info)
+    nadir_line = landsatangles.findNadirLine(corners)
 
-    extentSunAngles = landsatangles.sunAnglesForExtent(imgInfo, mtlInfo)
-    satAzimuth = landsatangles.satAzLeftRight(nadirLine)
+    extent_sun_angles = landsatangles.sunAnglesForExtent(img_info, mtl_info)
+    sat_azimuth = landsatangles.satAzLeftRight(nadir_line)
 
-    landsatangles.makeAnglesImage(ref_fname, angles_fname, nadirLine, extentSunAngles, satAzimuth, imgInfo)
+    landsatangles.makeAnglesImage(ref_fname, angles_fname, nadir_line, extent_sun_angles, sat_azimuth, img_info)
 
-    # saturation
-    cmd = [
-        "fmask_usgsLandsatSaturationMask.py",
-        "-i",
-        ref_fname,
-        "-m",
-        mtl_fname,
-        "-o",
-        mask_fname,
-    ]
-    run_command(cmd, work_dir)
+    landsat_number = mtl_info["SPACECRAFT_ID"][-1]
+    if landsat_number in ("4", "5", "7"):
+        sensor = config.FMASK_LANDSAT47
+    elif landsat_number in ("8", "9"):
+        sensor = config.FMASK_LANDSATOLI
+    else:
+        raise SystemExit("Unsupported Landsat sensor")
 
-    # toa
-    cmd = [
-        "fmask_usgsLandsatTOA.py",
-        "-i",
-        ref_fname,
-        "-m",
-        mtl_fname,
-        "-z",
-        angles_fname,
-        "-o",
-        toa_fname,
-    ]
-    run_command(cmd, work_dir)
+    # needed so the saturation function knows which
+    # bands are visible etc.
+    fmask_config = config.FmaskConfig(sensor)
+
+    saturationcheck.makeSaturationMask(fmask_config, ref_fname, mask_fname)
+
+    landsatTOA.makeTOAReflectance(ref_fname, mtl_fname, angles_fname, toa_fname)
 
     cmd = [
         "gdal_merge.py",
@@ -239,26 +233,39 @@ def _landsat_fmask(
     ]
     run_command(cmd, work_dir)
 
-    cmd = [
-        "fmask_usgsLandsatStacked.py",
-        "-t",
-        thm_fname,
-        "-a",
-        toa_fname,
-        "-m",
-        mtl_fname,
-        "-z",
-        angles_fname,
-        "-s",
-        mask_fname,
-        "-o",
-        out_fname,
-        "--cloudbufferdistance",
-        str(cloud_buffer_distance),
-        "--shadowbufferdistance",
-        str(cloud_shadow_buffer_distance),
-    ]
-    run_command(cmd, work_dir)
+    # 1040nm thermal band should always be the first (or only) band in a
+    # stack of Landsat thermal bands
+    thermal_info = config.readThermalInfoFromLandsatMTL(mtl_fname)
+
+    anglesInfo = config.AnglesFileInfo(angles_fname, 3, angles_fname, 2, angles_fname, 1, angles_fname, 0)
+
+    fmask_filenames = config.FmaskFilenames()
+    fmask_filenames.setTOAReflectanceFile(toa_fname)
+    fmask_filenames.setThermalFile(thm_fname)
+    fmask_filenames.setOutputCloudMaskFile(out_fname)
+    fmask_filenames.setSaturationMask(mask_fname)
+
+    fmask_config = config.FmaskConfig(sensor)
+    fmask_config.setThermalInfo(thermal_info)
+    fmask_config.setAnglesInfo(anglesInfo)
+    fmask_config.setKeepIntermediates(False)
+    fmask_config.setVerbose(False)
+    fmask_config.setTempDir(tmp_dir)
+
+    # TODO: Assuming the defaults are the same in the API as in CMD app?
+    # fmask_config.setMinCloudSize(0)
+    # fmask_config.setEqn17CloudProbThresh
+    # fmask_config.setEqn20NirSnowThresh
+    # fmask_config.setEqn20GreenSnowThresh
+
+    # Work out a suitable buffer size, in pixels, dependent on the resolution of the input TOA image
+    toa_img_info = fileinfo.ImageInfo(toa_fname)
+    fmask_config.setCloudBufferSize(int(cloud_buffer_distance / toa_img_info.xRes))
+    fmask_config.setShadowBufferSize(int(cloud_shadow_buffer_distance / toa_img_info.xRes))
+
+    fmask.doFmask(fmask_filenames, fmask_config)
+
+    # TODO: Clean up thermal/angles/saturation/toa ?
 
 
 def _sentinel2_fmask(
