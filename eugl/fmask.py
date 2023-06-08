@@ -1,11 +1,9 @@
-# coding=utf-8
 """
 Execution method for FMask - http://pythonfmask.org - (cloud, cloud shadow, water and
 snow/ice classification) code supporting Sentinel-2 Level 1 C SAFE format zip archives
 hosted by the Australian Copernicus Data Hub - http://www.copernicus.gov.au/ - for
 direct (zip) read access by datacube.
 """
-from __future__ import absolute_import
 
 import logging
 import os
@@ -116,7 +114,7 @@ def run_command(command, work_dir, timeout=None, command_name=None, allow_shell=
             raise CommandError('"%s" timed out' % (command_name))
         else:
             raise CommandError(
-                '"%s" failed with return code: %s' % (command_name, str(_proc.returncode))
+                f'"{command_name}" failed with return code: {str(_proc.returncode)}'
             )
     else:
         _LOG.debug(stdout.decode("utf-8"))
@@ -657,11 +655,11 @@ def fmask_cogtif(fname, out_fname, platform):
         ]
 
         for key, value in options.items():
-            command.extend(["-co", "{}={}".format(key, value)])
+            command.extend(["-co", f"{key}={value}"])
 
         if config_options:
             for key, value in config_options.items():
-                command.extend(["--config", "{}".format(key), "{}".format(value)])
+                command.extend(["--config", f"{key}", f"{value}"])
 
         command.extend([fname, out_fname])
 

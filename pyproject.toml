@@ -1,5 +1,18 @@
+[project]
+# Support Python 3.6+
+requires-python = ">=3.6"
+
 [build-system]
 requires = ["setuptools>=42", "wheel", "setuptools_scm[toml]>=3.4"]
+
+[tool.ruff]
+line-length = 90
+# Which checkers to enable?
+select = [
+  "E",   # pycodestyle
+  "F",   # pyflakes
+  "UP",  # pyupgrade
+]
 
 [tool.black]
 line-length = 90
