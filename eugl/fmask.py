@@ -32,7 +32,7 @@ from rios import fileinfo
 
 
 from eugl.metadata import fmask_metadata, grab_offset_dict
-from wagl.acquisition import acquisitions, Acquisition
+from wagl.acquisition import acquisitions, Acquisition, AcquisitionsContainer
 from wagl.acquisition.sentinel import Sentinel2Acquisition
 from wagl.constants import BandType
 
@@ -161,8 +161,8 @@ def extract_mtl(archive_path: Path, output_folder: Path) -> Path:
 
 def _landsat_fmask(
     acquisition: Acquisition,
-    out_fname: str,
-    work_dir: str,
+    out_fname: Path,
+    work_dir: Path,
     cloud_buffer_distance: float,
     cloud_shadow_buffer_distance: float,
 ):
@@ -171,7 +171,7 @@ def _landsat_fmask(
     """
     acquisition_path = Path(acquisition.pathname)
 
-    tmp_dir = Path(work_dir) / "fmask_imagery"
+    tmp_dir = work_dir / "fmask_imagery"
     mtl_fname = extract_mtl(acquisition_path, tmp_dir).as_posix()
 
     container = acquisitions(str(acquisition_path))
@@ -184,11 +184,11 @@ def _landsat_fmask(
     )
 
     # internal output filenames
-    ref_fname = pjoin(work_dir, "reflective.img")
-    thm_fname = pjoin(work_dir, "thermal.img")
-    angles_fname = pjoin(work_dir, "angles.img")
-    mask_fname = pjoin(work_dir, "saturation-mask.img")
-    toa_fname = pjoin(work_dir, "toa-reflectance.img")
+    ref_fname = work_dir / "reflective.img"
+    thm_fname = work_dir / "thermal.img"
+    angles_fname = work_dir / "angles.img"
+    mask_fname = work_dir / "saturation-mask.img"
+    toa_fname = work_dir / "toa-reflectance.img"
 
     reflective_bands = [
         url_to_gdal(acq.uri) for acq in acqs if acq.band_type is BandType.REFLECTIVE
@@ -300,34 +300,34 @@ def _landsat_fmask(
 
 
 def _sentinel2_fmask(
-    dataset_path,
-    container,
-    granule,
-    out_fname,
-    work_dir,
-    cloud_buffer_distance,
-    cloud_shadow_buffer_distance,
-    parallax_test,
+    dataset_path: Path,
+    container: AcquisitionsContainer,
+    granule_name: str,
+    out_fname: Path,
+    work_dir: Path,
+    cloud_buffer_distance: float,
+    cloud_shadow_buffer_distance: float,
+    parallax_test: bool,
 ):
     """
     Fmask algorithm for Sentinel-2.
     """
     work_dir = Path(work_dir)
     # temp_vrt_fname: save vrt with offest values in metadata
-    temp_vrt_fname = pjoin(work_dir, "reflective.tmp.vrt")
+    temp_vrt_fname = work_dir / "reflective.tmp.vrt"
     # vrt_fname: save vrt with applied offest values by gdal_translate
-    vrt_fname = pjoin(work_dir, "reflective.vrt")
-    angles_fname = pjoin(work_dir, ".angles.img")
+    vrt_fname = work_dir / "reflective.vrt"
+    angles_fname = work_dir / ".angles.img"
 
     acqs = []
     for grp in container.groups:
-        acqs.extend(container.get_acquisitions(grp, granule, False))
+        acqs.extend(container.get_acquisitions(grp, granule_name, False))
 
     band_ids = [acq.band_id for acq in acqs]
     required_ids = [str(i) for i in range(1, 13)]
     required_ids.insert(8, "8A")
 
-    acq: Sentinel2Acquisition = container.get_acquisitions(granule=granule)[0]
+    acq: Sentinel2Acquisition = container.get_acquisitions(granule=granule_name)[0]
 
     granule_xml_file = work_dir / Path(acq.granule_xml).name
     if ".zip" in acq.uri:
@@ -376,6 +376,7 @@ def _sentinel2_fmask(
 
     for band_id in required_ids:
         acq = acqs[band_ids.index(band_id)]
+        assert isinstance(acq, Sentinel2Acquisition)
 
         # if we process data before 2021-Nov, we will have an emtry
         # offset_dict because there is no offset values in metadata.xml.
@@ -424,7 +425,7 @@ def _sentinel2_fmask(
 
     top_metadata = sen2meta.Sen2ZipfileMeta(xmlfilename=top_level_xml)
 
-    angles_file = checkAnglesFile(angles_fname, vrt_fname)
+    angles_file = checkAnglesFile(str(angles_fname), str(vrt_fname))
     fmask_filenames = config.FmaskFilenames()
     fmask_filenames.setTOAReflectanceFile(vrt_fname)
     fmask_filenames.setOutputCloudMaskFile(out_fname)
@@ -560,10 +561,15 @@ def fmask(
         Whether to clean up the intermediate fmask files.
         Default is True.
     """
+
+    dataset_path = Path(dataset_path)
+    out_fname = Path(out_fname)
+    metadata_out_fname = Path(metadata_out_fname)
+
     container = acquisitions(dataset_path, acq_parser_hint)
     acq = container.get_acquisitions(None, granule, False)[0]
 
-    tmp_dir = tempfile.mkdtemp(prefix="tmp-work-", dir=workdir)
+    tmp_dir = Path(tempfile.mkdtemp(prefix="tmp-work-", dir=workdir))
     try:
         if "SENTINEL" in acq.platform_id:
             _sentinel2_fmask(
