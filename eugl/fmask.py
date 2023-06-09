@@ -4,7 +4,7 @@ snow/ice classification) code supporting Sentinel-2 Level 1 C SAFE format zip ar
 hosted by the Australian Copernicus Data Hub - http://www.copernicus.gov.au/ - for
 direct (zip) read access by datacube.
 """
-
+import fnmatch
 import logging
 import os
 import shutil
@@ -16,7 +16,7 @@ import tempfile
 import zipfile
 from os.path import join as pjoin, dirname
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Optional
 
 import rasterio.path
 from fmask import config
@@ -343,6 +343,9 @@ def _sentinel2_fmask(
     """
     Fmask algorithm for Sentinel-2.
     """
+
+    # TODO: Recheck non-zip file support.
+
     work_dir = Path(work_dir)
 
     acqs = []
@@ -356,25 +359,23 @@ def _sentinel2_fmask(
     if ".zip" in acq.uri:
         _extract_file_from_zip(
             zip_file=dataset_path,
-            file_offset=acq.granule_xml,
+            file_pattern=acq.granule_xml,
             destination_path=granule_xml_file,
         )
 
     top_level_xml = work_dir / "MTD_MSIL1C.xml"
-
-    # TODO: otherwise, older formats have a single xml file named by the date.
-    # EG: xmlList = [f for f in glob.glob(os.path.join(safeDir, "*.xml"))
-    # if "INSPIRE.xml" not in f]
-
     if ".zip" in acq.uri:
         _extract_file_from_zip(
             zip_file=dataset_path,
-            file_offset=(
+            file_pattern=(
+                # There should be exactly one xml file in the top-level folder.
+                # It's often called MTD_MSIL1C.xml, but there are several variations.
                 pjoin(
                     _base_folder_from_granule_xml(acq.granule_xml),
-                    os.path.basename(top_level_xml),
+                    "*.xml",
                 )
             ),
+            exclude_name="INSPIRE.xml",
             destination_path=top_level_xml,
         )
 
@@ -485,9 +486,40 @@ def _sentinel2_fmask(
     # TODO: Remove intermediates? toa, angles files
 
 
-def _extract_file_from_zip(zip_file: Path, file_offset: str, destination_path: Path):
+def _extract_file_from_zip(
+    zip_file: Path,
+    file_pattern: str,
+    destination_path: Path,
+    exclude_name: Optional[str] = None,
+):
+    """
+    Extract one file from a zip file.
+
+    The given file_pattern may be a glob.
+    (If it matches multiple files, an error is raised.)
+
+    The matched file is written to the given destination_path.
+    """
     with zipfile.ZipFile(zip_file, "r") as zip_ref:
-        with zip_ref.open(file_offset) as zf, destination_path.open("wb") as f:
+        matched_files = fnmatch.filter(zip_ref.namelist(), file_pattern)
+        if exclude_name:
+            matched_files = [f for f in matched_files if exclude_name not in f]
+
+        # Only allow exactly one file to match. Otherwise, something's wrong!
+        if not matched_files:
+            raise FileNotFoundError(
+                f"No files match the pattern "
+                f"{file_pattern!r} in {zip_file.as_posix()!r}"
+            )
+        elif len(matched_files) > 1:
+            raise ValueError(
+                f"Multiple files match the pattern "
+                f"{file_pattern!r} in {zip_file.as_posix()!r}"
+            )
+
+        # Extract it.
+        matched_file = matched_files[0]
+        with zip_ref.open(matched_file) as zf, destination_path.open("wb") as f:
             f.write(zf.read())
 
 
