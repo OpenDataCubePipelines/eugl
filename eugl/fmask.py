@@ -60,7 +60,7 @@ class CommandError(RuntimeError):
     pass
 
 
-def url_to_gdal(url: str):
+def uri_to_gdal(url: str):
     """
     Convert a rio-like URL into gdal-compatible vsi paths.
 
@@ -71,10 +71,12 @@ def url_to_gdal(url: str):
     ...     'tar:///tmp/LC08_L1GT_109080_20210601_20210608_02_T2.tar!'
     ...     '/LC08_L1GT_109080_20210601_20210608_02_T2_B1.TIF'
     ... )
-    >>> url_to_gdal(url)
+    >>> uri_to_gdal(url)
     '/vsitar//tmp/LC08_L1GT_109080_20210601_20210608_02_T2.tar/LC08_L1GT_109080_20210601_20210608_02_T2_B1.TIF'
     """
     # rio is considering removing this, so it's confined here to one place.
+    # Some old wagl code did a much simpler but incomplete method:
+    # >>> jp2_path = acq.uri.replace("zip:", "/vsizip/").replace("!", "")
     return rasterio.path.parse_path(url).as_vsi()
 
 
@@ -103,21 +105,19 @@ def run_command(command, work_dir, timeout=None, command_name=None, allow_shell=
         stdout, stderr = _proc.communicate()
         timed_out = True
 
+    command_name = command_name or str(command)
     if _proc.returncode != 0:
-        _LOG.error(stderr.decode("utf-8"))
-        _LOG.info(stdout.decode("utf-8"))
-
-        if command_name is None:
-            command_name = str(command)
+        _LOG.error("stderr: %s", stderr.decode("utf-8"))
+        _LOG.info("stdout: %s", stdout.decode("utf-8"))
 
         if timed_out:
-            raise CommandError('"%s" timed out' % (command_name))
+            raise CommandError(f"{command_name!r} timed out (timeout={timeout}")
         else:
             raise CommandError(
-                f'"{command_name}" failed with return code: {str(_proc.returncode)}'
+                f"{command_name!r} failed with return code: {str(_proc.returncode)}"
             )
     else:
-        _LOG.debug(stdout.decode("utf-8"))
+        _LOG.debug("Command %s had output: %s", command_name, stdout.decode("utf-8"))
 
 
 def extract_mtl(archive_path: Path, output_folder: Path) -> Path:
@@ -191,10 +191,10 @@ def _landsat_fmask(
     toa_fname = work_dir / "toa-reflectance.img"
 
     reflective_bands = [
-        url_to_gdal(acq.uri) for acq in acqs if acq.band_type is BandType.REFLECTIVE
+        uri_to_gdal(acq.uri) for acq in acqs if acq.band_type is BandType.REFLECTIVE
     ]
     thermal_bands = [
-        url_to_gdal(acq.uri) for acq in acqs if acq.band_type is BandType.THERMAL
+        uri_to_gdal(acq.uri) for acq in acqs if acq.band_type is BandType.THERMAL
     ]
 
     if not thermal_bands:
@@ -389,9 +389,7 @@ def _sentinel2_fmask(
             offset_values.append(0)
 
         if ".zip" in acq.uri:
-            jp2_path = acq.uri.replace("zip:", "/vsizip/").replace("!", "")
-            cmd.append(jp2_path)
-
+            cmd.append(uri_to_gdal(acq.uri))
         else:
             cmd.append(acq.uri)
     run_command(cmd, work_dir)
@@ -413,7 +411,7 @@ def _sentinel2_fmask(
 
     from fmask import sen2meta
 
-    # angles generation
+    # Angles generation
     if ".zip" in acq.uri:
         infile = granule_xml_file
     else:
