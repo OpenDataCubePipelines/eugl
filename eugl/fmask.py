@@ -36,6 +36,22 @@ from wagl.acquisition import acquisitions, Acquisition, AcquisitionsContainer
 from wagl.acquisition.sentinel import Sentinel2Acquisition
 from wagl.constants import BandType
 
+REQUIRED_S2_BAND_IDS = (
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "8A",
+    "9",
+    "10",
+    "11",
+    "12",
+)
+
 _LOG = logging.getLogger(__name__)
 
 os.environ["CPL_ZIP_ENCODING"] = "UTF-8"
@@ -86,8 +102,15 @@ def run_command(command, work_dir, timeout=None, command_name=None, allow_shell=
     Raises a CalledProcessError for backwards compatibility
     """
 
+    def to_simple_str(s):
+        if isinstance(s, bytes):
+            return s.decode("utf-8")
+        elif isinstance(s, Path):
+            return s.as_posix()
+        return str(s)
+
     _proc = subprocess.Popen(
-        command,
+        [to_simple_str(o) for o in command],
         stderr=subprocess.PIPE,
         stdout=subprocess.PIPE,
         preexec_fn=os.setsid,
@@ -161,7 +184,7 @@ def extract_mtl(archive_path: Path, output_folder: Path) -> Path:
 
 def _landsat_fmask(
     acquisition: Acquisition,
-    out_fname: Path,
+    output_path: Path,
     work_dir: Path,
     cloud_buffer_distance: float,
     cloud_shadow_buffer_distance: float,
@@ -172,7 +195,7 @@ def _landsat_fmask(
     acquisition_path = Path(acquisition.pathname)
 
     tmp_dir = work_dir / "fmask_imagery"
-    mtl_fname = extract_mtl(acquisition_path, tmp_dir).as_posix()
+    mtl_path = extract_mtl(acquisition_path, tmp_dir)
 
     container = acquisitions(str(acquisition_path))
     # [-1] index Avoids panchromatic band
@@ -184,11 +207,11 @@ def _landsat_fmask(
     )
 
     # internal output filenames
-    ref_fname = work_dir / "reflective.img"
-    thm_fname = work_dir / "thermal.img"
-    angles_fname = work_dir / "angles.img"
-    mask_fname = work_dir / "saturation-mask.img"
-    toa_fname = work_dir / "toa-reflectance.img"
+    reflective_path = work_dir / "reflective.img"
+    thermal_path = work_dir / "thermal.img"
+    angles_path = work_dir / "angles.img"
+    sat_mask_path = work_dir / "saturation-mask.img"
+    toa_reflectance_path = work_dir / "toa-reflectance.img"
 
     reflective_bands = [
         uri_to_gdal(acq.uri) for acq in acqs if acq.band_type is BandType.REFLECTIVE
@@ -210,22 +233,25 @@ def _landsat_fmask(
         "-co",
         "COMPRESSED=YES",
         "-o",
-        ref_fname,
+        reflective_path,
         *reflective_bands,
     ]
     run_command(cmd, work_dir)
 
-    mtl_info = config.readMTLFile(mtl_fname)
+    mtl_info = config.readMTLFile(str(mtl_path))
 
-    img_info = fileinfo.ImageInfo(ref_fname)
-    corners = landsatangles.findImgCorners(ref_fname, img_info)
-    nadir_line = landsatangles.findNadirLine(corners)
-
-    extent_sun_angles = landsatangles.sunAnglesForExtent(img_info, mtl_info)
-    sat_azimuth = landsatangles.satAzLeftRight(nadir_line)
+    img_info = fileinfo.ImageInfo(str(reflective_path))
+    nadir_line = landsatangles.findNadirLine(
+        landsatangles.findImgCorners(str(reflective_path), img_info)
+    )
 
     landsatangles.makeAnglesImage(
-        ref_fname, angles_fname, nadir_line, extent_sun_angles, sat_azimuth, img_info
+        str(reflective_path),
+        str(angles_path),
+        nadir_line,
+        landsatangles.sunAnglesForExtent(img_info, mtl_info),
+        landsatangles.satAzLeftRight(nadir_line),
+        img_info,
     )
 
     landsat_number = mtl_info["SPACECRAFT_ID"][-1]
@@ -234,42 +260,47 @@ def _landsat_fmask(
     elif landsat_number in ("8", "9"):
         sensor = config.FMASK_LANDSATOLI
     else:
-        raise SystemExit("Unsupported Landsat sensor")
+        raise SystemExit(f"Unsupported Landsat sensor: {landsat_number!r}")
 
     # needed so the saturation function knows which
     # bands are visible etc.
     fmask_config = config.FmaskConfig(sensor)
 
-    saturationcheck.makeSaturationMask(fmask_config, ref_fname, mask_fname)
+    saturationcheck.makeSaturationMask(
+        fmask_config, str(reflective_path), str(sat_mask_path)
+    )
+    landsatTOA.makeTOAReflectance(
+        str(reflective_path), str(mtl_path), str(angles_path), str(toa_reflectance_path)
+    )
 
-    landsatTOA.makeTOAReflectance(ref_fname, mtl_fname, angles_fname, toa_fname)
-
-    cmd = [
-        "gdal_merge.py",
-        "-separate",
-        "-of",
-        "HFA",
-        "-co",
-        "COMPRESSED=YES",
-        "-o",
-        thm_fname,
-        *thermal_bands,
-    ]
-    run_command(cmd, work_dir)
+    run_command(
+        [
+            "gdal_merge.py",
+            "-separate",
+            "-of",
+            "HFA",
+            "-co",
+            "COMPRESSED=YES",
+            "-o",
+            thermal_path,
+            *thermal_bands,
+        ],
+        work_dir,
+    )
 
     # 1040nm thermal band should always be the first (or only) band in a
     # stack of Landsat thermal bands
-    thermal_info = config.readThermalInfoFromLandsatMTL(mtl_fname)
+    thermal_info = config.readThermalInfoFromLandsatMTL(str(mtl_path))
 
     angles_info = config.AnglesFileInfo(
-        angles_fname, 3, angles_fname, 2, angles_fname, 1, angles_fname, 0
+        angles_path, 3, angles_path, 2, angles_path, 1, angles_path, 0
     )
 
     fmask_filenames = config.FmaskFilenames()
-    fmask_filenames.setTOAReflectanceFile(toa_fname)
-    fmask_filenames.setThermalFile(thm_fname)
-    fmask_filenames.setOutputCloudMaskFile(out_fname)
-    fmask_filenames.setSaturationMask(mask_fname)
+    fmask_filenames.setTOAReflectanceFile(str(toa_reflectance_path))
+    fmask_filenames.setThermalFile(str(thermal_path))
+    fmask_filenames.setOutputCloudMaskFile(str(output_path))
+    fmask_filenames.setSaturationMask(str(sat_mask_path))
 
     fmask_config = config.FmaskConfig(sensor)
     fmask_config.setThermalInfo(thermal_info)
@@ -286,7 +317,7 @@ def _landsat_fmask(
 
     # Work out a suitable buffer size, in pixels, dependent on the resolution
     # of the input TOA image
-    toa_img_info = fileinfo.ImageInfo(toa_fname)
+    toa_img_info = fileinfo.ImageInfo(str(toa_reflectance_path))
     fmask_config.setCloudBufferSize(int(cloud_buffer_distance / toa_img_info.xRes))
     fmask_config.setShadowBufferSize(
         int(cloud_shadow_buffer_distance / toa_img_info.xRes)
@@ -303,7 +334,7 @@ def _sentinel2_fmask(
     dataset_path: Path,
     container: AcquisitionsContainer,
     granule_name: str,
-    out_fname: Path,
+    output_path: Path,
     work_dir: Path,
     cloud_buffer_distance: float,
     cloud_shadow_buffer_distance: float,
@@ -313,20 +344,12 @@ def _sentinel2_fmask(
     Fmask algorithm for Sentinel-2.
     """
     work_dir = Path(work_dir)
-    # temp_vrt_fname: save vrt with offest values in metadata
-    temp_vrt_fname = work_dir / "reflective.tmp.vrt"
-    # vrt_fname: save vrt with applied offest values by gdal_translate
-    vrt_fname = work_dir / "reflective.vrt"
-    angles_fname = work_dir / ".angles.img"
 
     acqs = []
     for grp in container.groups:
         acqs.extend(container.get_acquisitions(grp, granule_name, False))
 
     band_ids = [acq.band_id for acq in acqs]
-    required_ids = [str(i) for i in range(1, 13)]
-    required_ids.insert(8, "8A")
-
     acq: Sentinel2Acquisition = container.get_acquisitions(granule=granule_name)[0]
 
     granule_xml_file = work_dir / Path(acq.granule_xml).name
@@ -358,23 +381,11 @@ def _sentinel2_fmask(
     offsets = grab_offset_dict(dataset_path)
 
     # vrt creation
-    cmd = [
-        "gdalbuildvrt",
-        "-resolution",
-        "user",
-        "-tr",
-        "20",
-        "20",
-        "-separate",
-        "-overwrite",
-        temp_vrt_fname,
-    ]
+    # When we use bands to create a VRT, also embed its offset values in the metadata.
+    band_uris = []
+    band_offset_values = []
 
-    # when we use band to create VRT, also pass its offset values
-    # to offset_values list, which will be used in gdal_edit later
-    offset_values = []
-
-    for band_id in required_ids:
+    for band_id in REQUIRED_S2_BAND_IDS:
         acq = acqs[band_ids.index(band_id)]
         assert isinstance(acq, Sentinel2Acquisition)
 
@@ -384,30 +395,50 @@ def _sentinel2_fmask(
         # with same keys but all values are 0, but S2 band_ids
         # is hard to use a simple loop to create.
         if band_id in offsets:
-            offset_values.append(offsets[band_id])
+            band_offset_values.append(offsets[band_id])
         else:
-            offset_values.append(0)
+            band_offset_values.append(0)
 
         if ".zip" in acq.uri:
-            cmd.append(uri_to_gdal(acq.uri))
+            band_uris.append(uri_to_gdal(acq.uri))
         else:
-            cmd.append(acq.uri)
-    run_command(cmd, work_dir)
+            band_uris.append(acq.uri)
 
-    # Attach offset values to VRT as metadata info
+    # A tmp VRT with metadata-based offset values.
+    reflective_tmp_vrt = work_dir / "reflective.tmp.vrt"
+    run_command(
+        [
+            "gdalbuildvrt",
+            "-resolution",
+            "user",
+            "-tr",
+            "20",
+            "20",
+            "-separate",
+            "-overwrite",
+            reflective_tmp_vrt,
+            *band_uris,
+        ],
+        work_dir,
+    )
+    # Now attach offset values to VRT as metadata info
     run_command(
         [
             "gdal_edit.py",
             "-ro",
             "-offset",
-            *[str(e) for e in offset_values],
-            temp_vrt_fname,
+            *[str(e) for e in band_offset_values],
+            reflective_tmp_vrt,
         ],
         work_dir,
     )
 
     # Apply offset metadata for the bands
-    run_command(["gdal_translate", temp_vrt_fname, vrt_fname, "-unscale"], work_dir)
+
+    reflective_vrt_img = work_dir / "reflective.vrt"
+    run_command(
+        ["gdal_translate", reflective_tmp_vrt, reflective_vrt_img, "-unscale"], work_dir
+    )
 
     from fmask import sen2meta
 
@@ -417,16 +448,17 @@ def _sentinel2_fmask(
     else:
         infile = acq.granule_xml
 
-    makeAngles(infile, angles_fname)
+    angles_img = work_dir / "angles.img"
+    makeAngles(str(infile), str(angles_img))
 
     # Run fmask
 
     top_metadata = sen2meta.Sen2ZipfileMeta(xmlfilename=top_level_xml)
 
-    angles_file = checkAnglesFile(str(angles_fname), str(vrt_fname))
+    angles_file = checkAnglesFile(str(angles_img), str(reflective_vrt_img))
     fmask_filenames = config.FmaskFilenames()
-    fmask_filenames.setTOAReflectanceFile(vrt_fname)
-    fmask_filenames.setOutputCloudMaskFile(out_fname)
+    fmask_filenames.setTOAReflectanceFile(str(reflective_vrt_img))
+    fmask_filenames.setOutputCloudMaskFile(str(output_path))
 
     fmask_config = config.FmaskConfig(config.FMASK_SENTINEL2)
     fmask_config.setAnglesInfo(
@@ -442,7 +474,7 @@ def _sentinel2_fmask(
 
     # Work out a suitable buffer size, in pixels, dependent on the
     # resolution of the input TOA image
-    toa_img_info = fileinfo.ImageInfo(vrt_fname)
+    toa_img_info = fileinfo.ImageInfo(str(reflective_vrt_img))
     fmask_config.setCloudBufferSize(int(cloud_buffer_distance / toa_img_info.xRes))
     fmask_config.setShadowBufferSize(
         int(cloud_shadow_buffer_distance / toa_img_info.xRes)
@@ -564,7 +596,7 @@ def fmask(
     out_fname = Path(out_fname)
     metadata_out_fname = Path(metadata_out_fname)
 
-    container = acquisitions(dataset_path, acq_parser_hint)
+    container = acquisitions(str(dataset_path), acq_parser_hint)
     acq = container.get_acquisitions(None, granule, False)[0]
 
     tmp_dir = Path(tempfile.mkdtemp(prefix="tmp-work-", dir=workdir))
