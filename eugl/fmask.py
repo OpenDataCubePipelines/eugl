@@ -4,19 +4,21 @@ snow/ice classification) code supporting Sentinel-2 Level 1 C SAFE format zip ar
 hosted by the Australian Copernicus Data Hub - http://www.copernicus.gov.au/ - for
 direct (zip) read access by datacube.
 """
-import fnmatch
 import logging
 import os
 import shutil
 import signal
 import subprocess
 import sys
-import tarfile
 import tempfile
-import zipfile
 from os.path import join as pjoin, dirname
+from typing import Dict
+
+import zipfile
+import tarfile
+import fnmatch
 from pathlib import Path, PurePosixPath
-from typing import Dict, Optional
+from typing import Optional
 
 import rasterio.path
 from fmask import config
@@ -29,7 +31,6 @@ from fmask.cmdline.sentinel2makeAnglesImage import makeAngles
 from fmask import fmask as fmask_algorithm
 
 from rios import fileinfo
-
 
 from eugl.metadata import fmask_metadata, grab_offset_dict
 from wagl.acquisition import acquisitions, Acquisition, AcquisitionsContainer
@@ -143,45 +144,6 @@ def run_command(command, work_dir, timeout=None, command_name=None, allow_shell=
         _LOG.debug("Command %s had output: %s", command_name, stdout.decode("utf-8"))
 
 
-def extract_mtl(archive_path: Path, output_folder: Path) -> Path:
-    """
-    Find and extract the MTL from an archive.
-    """
-    output_folder.mkdir(parents=True, exist_ok=True)
-
-    mtl_files = []
-    if archive_path.is_dir():
-        for mtl in archive_path.rglob("*_MTL.txt"):
-            mtl_files.append(mtl.name)
-            (output_folder / mtl.name).write_bytes(mtl.read_bytes())
-
-    elif archive_path.suffix in [".tar", ".gz", ".tgz", ".bz2"]:
-        with tarfile.open(archive_path, "r") as tar:
-            for member in tar.getmembers():
-                if member.name.endswith("_MTL.txt"):
-                    mtl_files.append(member.name)
-                    tar.extract(member, output_folder, set_attrs=False)
-
-    elif archive_path.suffix == ".zip":
-        with zipfile.ZipFile(archive_path, "r") as zipf:
-            for member in zipf.namelist():
-                if member.endswith("_MTL.txt"):
-                    mtl_files.append(member)
-                    zipf.extract(member, output_folder)
-
-    else:
-        raise ValueError(
-            "Invalid archive format. Only .tar, .tar.gz, .zip are supported."
-        )
-
-    if len(mtl_files) == 0:
-        raise ValueError("No _MTL.txt file found in the archive.")
-    elif len(mtl_files) > 1:
-        raise ValueError("Multiple _MTL.txt files found in the archive. ")
-
-    return output_folder / mtl_files[0]
-
-
 def _landsat_fmask(
     acquisition: Acquisition,
     output_path: Path,
@@ -195,7 +157,8 @@ def _landsat_fmask(
     acquisition_path = Path(acquisition.pathname)
 
     tmp_dir = work_dir / "fmask_imagery"
-    mtl_path = extract_mtl(acquisition_path, tmp_dir)
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    mtl_path = _extract_mtl(acquisition_path, tmp_dir)
 
     container = acquisitions(str(acquisition_path))
     # [-1] index Avoids panchromatic band
@@ -330,6 +293,17 @@ def _landsat_fmask(
     # TODO: Clean up thermal/angles/saturation/toa ?
 
 
+def _extract_mtl(archive_path, out_dir):
+    with FileArchive(archive_path) as archive:
+        mtls = [Path(file) for file in archive.files if file.endswith("_MTL.txt")]
+        if len(mtls) != 1:
+            raise RuntimeError(f"Expected one MTL file, found {len(mtls)}: {mtls}")
+        mtl = mtls[0]
+        mtl_out_path = out_dir / mtl.name
+        archive.extract_file(mtl.as_posix(), mtl_out_path)
+        return mtl_out_path
+
+
 def _sentinel2_fmask(
     dataset_path: Path,
     container: AcquisitionsContainer,
@@ -355,25 +329,19 @@ def _sentinel2_fmask(
     band_ids = [acq.band_id for acq in acqs]
     acq: Sentinel2Acquisition = container.get_acquisitions(granule=granule_name)[0]
 
+    # Pull out the important metadata files.
     granule_xml_file = work_dir / Path(acq.granule_xml).name
-    if ".zip" in acq.uri:
-        _extract_file_from_zip(
-            zip_file=dataset_path,
-            file_pattern=acq.granule_xml,
-            destination_path=granule_xml_file,
-        )
-
     top_level_xml = work_dir / "MTD_MSIL1C.xml"
-    if ".zip" in acq.uri:
-        _extract_file_from_zip(
-            zip_file=dataset_path,
-            file_pattern=(
-                # There should be exactly one xml file in the top-level folder.
-                # It's often called MTD_MSIL1C.xml, but there are several variations.
-                pjoin(
-                    _base_folder_from_granule_xml(acq.granule_xml),
-                    "*.xml",
-                )
+    with FileArchive(dataset_path) as archive:
+        archive.extract_file(
+            file_pattern=acq.granule_xml, destination_path=granule_xml_file
+        )
+        archive.extract_file(
+            # There should be exactly one xml file in the top-level folder.
+            # It's often called MTD_MSIL1C.xml, but there are several variations.
+            file_pattern=pjoin(
+                _base_folder_from_granule_xml(acq.granule_xml),
+                "*.xml",
             ),
             exclude_name="INSPIRE.xml",
             destination_path=top_level_xml,
@@ -444,16 +412,10 @@ def _sentinel2_fmask(
     from fmask import sen2meta
 
     # Angles generation
-    if ".zip" in acq.uri:
-        infile = granule_xml_file
-    else:
-        infile = acq.granule_xml
-
     angles_img = work_dir / "angles.img"
-    makeAngles(str(infile), str(angles_img))
+    makeAngles(str(granule_xml_file), str(angles_img))
 
     # Run fmask
-
     top_metadata = sen2meta.Sen2ZipfileMeta(xmlfilename=top_level_xml)
 
     angles_file = checkAnglesFile(str(angles_img), str(reflective_vrt_img))
@@ -486,21 +448,52 @@ def _sentinel2_fmask(
     # TODO: Remove intermediates? toa, angles files
 
 
-def _extract_file_from_zip(
-    zip_file: Path,
-    file_pattern: str,
-    destination_path: Path,
-    exclude_name: Optional[str] = None,
-):
-    """
-    Extract one file from a zip file.
+class FileArchive:
+    """A simple abstraction over zip/tar files, or directories."""
 
-    The given file_pattern may be a glob.
-    (If it matches multiple files, an error is raised.)
+    def __init__(self, archive_path: Path):
+        self.archive_path = archive_path
 
-    The matched file is written to the given destination_path.
-    """
-    with zipfile.ZipFile(zip_file, "r") as zip_ref:
+    def __enter__(self):
+        # Our "archive" can be a directory, a zip file, or a tar file.
+        if self.archive_path.is_dir():
+            self.open_file = lambda p: open(self.archive_path / p, "rb")
+            self.files = [
+                p.relative_to(self.archive_path).as_posix()
+                for p in self.archive_path.rglob("*")
+                if p.is_file()
+            ]
+        elif self.archive_path.suffix in [".zip"]:
+            self._archive = zipfile.ZipFile(self.archive_path, "r")
+            self.open_file = self._archive.open
+            self.files = self._archive.namelist()
+        elif self.archive_path.suffix in [".tar", ".tar.gz", ".tar.bz2", ".tgz"]:
+            self._archive = tarfile.open(self.archive_path, "r")
+            self.open_file = self._archive.extractfile
+            self.files = self._archive.getnames()
+        else:
+            raise ValueError(f"Unsupported file type: {self.archive_path}")
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if hasattr(self, "_archive"):
+            self._archive.close()
+
+    def extract_file(
+        self,
+        file_pattern: str,
+        destination_path: Path,
+        exclude_name: Optional[str] = None,
+    ):
+        """
+        Extract one file from an archive.
+
+        The given file_pattern may be a filename glob.
+
+        (If it matches multiple files, an error is raised.)
+
+        The matched file is written to the given destination_path.
+        """
         # Split the file pattern into directory and pattern
         directory, pattern = (
             PurePosixPath(file_pattern).parent,
@@ -509,29 +502,30 @@ def _extract_file_from_zip(
 
         # Find files that match the pattern within the specified directory
         matched_files = [
-            file
-            for file in zip_ref.namelist()
-            if PurePosixPath(file).parent == directory
-            and fnmatch.fnmatch(PurePosixPath(file).name, pattern)
+            member
+            for member in self.files
+            if PurePosixPath(member).parent == directory
+            and fnmatch.fnmatch(PurePosixPath(member).name, pattern)
         ]
 
         if exclude_name:
             matched_files = [f for f in matched_files if exclude_name not in f]
 
-        # Check if exactly one file matches the pattern
         if len(matched_files) == 0:
             raise FileNotFoundError(
-                f"No files match the pattern {file_pattern} in {zip_file}"
+                f"No files match the pattern {file_pattern} in {self.archive_path}"
             )
         elif len(matched_files) > 1:
             raise ValueError(
-                f"Multiple files match the pattern {file_pattern} in {zip_file}"
+                f"Multiple files match the pattern {file_pattern} in {self.archive_path}"
             )
 
-        # Extract it.
+        # Extract the file
         matched_file = matched_files[0]
-        with zip_ref.open(matched_file) as zf, destination_path.open("wb") as f:
-            f.write(zf.read())
+        with self.open_file(matched_file) as archive_file_ref, destination_path.open(
+            "wb"
+        ) as f:
+            f.write(archive_file_ref.read())
 
 
 def _base_folder_from_granule_xml(granule_xml):
