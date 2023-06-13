@@ -221,7 +221,7 @@ def grab_offset_dict(dataset_path):
         # in the NRT pipeline, the offsets have already been applied
         return {}
 
-    xml_root = xml_via_safe(archive, dataset_path)
+    xml_root = xml_via_safe(archive, str(dataset_path))
 
     # ESA image ids
     esa_ids = [
