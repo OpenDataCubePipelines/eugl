@@ -256,7 +256,7 @@ def _landsat_fmask(
     thermal_info = config.readThermalInfoFromLandsatMTL(str(mtl_path))
 
     angles_info = config.AnglesFileInfo(
-        angles_path, 3, angles_path, 2, angles_path, 1, angles_path, 0
+        str(angles_path), 3, str(angles_path), 2, str(angles_path), 1, str(angles_path), 0
     )
 
     fmask_filenames = config.FmaskFilenames()
