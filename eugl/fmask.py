@@ -15,7 +15,7 @@ import tarfile
 import tempfile
 import zipfile
 from os.path import join as pjoin, dirname
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Dict, Optional
 
 import rasterio.path
@@ -501,20 +501,31 @@ def _extract_file_from_zip(
     The matched file is written to the given destination_path.
     """
     with zipfile.ZipFile(zip_file, "r") as zip_ref:
-        matched_files = fnmatch.filter(zip_ref.namelist(), file_pattern)
+        # Split the file pattern into directory and pattern
+        directory, pattern = (
+            PurePosixPath(file_pattern).parent,
+            PurePosixPath(file_pattern).name,
+        )
+
+        # Find files that match the pattern within the specified directory
+        matched_files = [
+            file
+            for file in zip_ref.namelist()
+            if PurePosixPath(file).parent == directory
+            and fnmatch.fnmatch(PurePosixPath(file).name, pattern)
+        ]
+
         if exclude_name:
             matched_files = [f for f in matched_files if exclude_name not in f]
 
-        # Only allow exactly one file to match. Otherwise, something's wrong!
-        if not matched_files:
+        # Check if exactly one file matches the pattern
+        if len(matched_files) == 0:
             raise FileNotFoundError(
-                f"No files match the pattern "
-                f"{file_pattern!r} in {zip_file.as_posix()!r}"
+                f"No files match the pattern {file_pattern} in {zip_file}"
             )
         elif len(matched_files) > 1:
             raise ValueError(
-                f"Multiple files match the pattern "
-                f"{file_pattern!r} in {zip_file.as_posix()!r}"
+                f"Multiple files match the pattern {file_pattern} in {zip_file}"
             )
 
         # Extract it.
