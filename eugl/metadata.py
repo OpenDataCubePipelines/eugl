@@ -14,6 +14,7 @@ from wagl.acquisition import xml_via_safe
 import zipfile
 import re
 import logging
+import numpy as np
 
 _LOG = logging.getLogger(__name__)
 
@@ -114,6 +115,8 @@ def fmask_metadata(
     with rasterio.open(fmask_img_path) as ds:
         hist = histogram(ds.read(1), minv=0, maxv=5)["histogram"]
 
+    _LOG.info("Histogram: %r", hist)
+
     # Classification schema
     # 0 -> Invalid
     # 1 -> Clear
@@ -123,9 +126,14 @@ def fmask_metadata(
     # 5 -> Water
 
     # info will be based on the valid pixels only (exclude 0)
-    # scaled probability density function
-    _LOG.info("Histogram: %r", hist)
-    pdf = hist[1:] / hist[1:].sum() * 100
+    valid_pixl_count = hist[1:].sum()
+    if valid_pixl_count == 0:
+        # When everything's invalid, consider the output NaN
+        # (matching old fmask behaviour).
+        pdf = np.full(hist[1:].shape, np.nan)
+    else:
+        # Scaled probability density function
+        pdf = hist[1:] / valid_pixl_count * 100
 
     md = {
         **_get_fmask_metadata(),

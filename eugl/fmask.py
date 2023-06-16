@@ -73,17 +73,6 @@ _LOG = logging.getLogger(__name__)
 os.environ["CPL_ZIP_ENCODING"] = "UTF-8"
 
 
-# NOTE
-# This module was quickly put together to achieve the deadlines
-# and have an operation version of Fmask working for both S2 and Landsat.
-# See TODO below
-
-# TODO
-# rework this entire module to be more dynamic for better sensor support
-# potentially use the module and pass in the require vars rather
-# than a command line call.
-
-
 class CommandError(RuntimeError):
     """
     Custom class to capture subprocess call errors
