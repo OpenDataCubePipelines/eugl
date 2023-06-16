@@ -13,7 +13,9 @@ from idl_functions import histogram
 from wagl.acquisition import xml_via_safe
 import zipfile
 import re
+import logging
 
+_LOG = logging.getLogger(__name__)
 
 # TODO: Fix update to merge the dictionaries
 
@@ -122,6 +124,7 @@ def fmask_metadata(
 
     # info will be based on the valid pixels only (exclude 0)
     # scaled probability density function
+    _LOG.info("Histogram: %r", hist)
     pdf = hist[1:] / hist[1:].sum() * 100
 
     md = {
