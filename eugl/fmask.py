@@ -94,6 +94,9 @@ def uri_to_gdal(url: str):
     ... )
     >>> uri_to_gdal(url)
     '/vsitar//tmp/LC08_L1GT_109080_20210601_20210608_02_T2.tar/LC08_L1GT_109080_20210601_20210608_02_T2_B1.TIF'
+    >>> # Local paths are returned as-is
+    >>> uri_to_gdal('/tmp/example-local-path.tif')
+    '/tmp/example-local-path.tif'
     """
     # rio is considering removing this, so it's confined here to one place.
     # Some old wagl code did a much simpler but incomplete method:
@@ -383,10 +386,7 @@ def _sentinel2_fmask(
         else:
             band_offset_values.append(0)
 
-        if ".zip" in acq.uri:
-            band_uris.append(uri_to_gdal(acq.uri))
-        else:
-            band_uris.append(acq.uri)
+        band_uris.append(uri_to_gdal(acq.uri))
 
     # A tmp VRT with metadata-based offset values.
     reflective_tmp_vrt = work_dir / "reflective.tmp.vrt"
