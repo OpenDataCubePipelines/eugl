@@ -26,3 +26,7 @@ Now install the pre-commit hook to the current repository:
 
 Your code will now be formatted and validated before each commit. You can also
 invoke it manually by running `pre-commit run`
+
+# Testing
+
+See the `testing` directory ([testing/README.md](readme)) fmask-related tests.

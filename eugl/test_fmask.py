@@ -10,6 +10,9 @@ from .fmask import FileArchive
 
 @pytest.fixture(params=["zip", "tar", "dir"])
 def create_archive_file(tmp_path, request):
+    """
+    A fixture that will run each test three times, one for each archive type.
+    """
     archive_file = tmp_path / f"test.{request.param}"
 
     # Initialize the files with content
