@@ -1,4 +1,5 @@
 
+### eugl fmask testing
 
 Example session to run tests for eugl's fmask test on NCI.
 
@@ -24,3 +25,40 @@ Then run a comparison of the two output directories:
 	./cmp-fmask-outputs.py output-original output-dev
 
 It will compare both imagery and metadata.
+
+## Raw commands
+
+```bash
+❯ ./fmask-generate-test-data.py --help
+usage: fmask-generate-test-data.py [-h] [--test-data-nci] [--test-data-eod3] [--out-path OUT_PATH]
+                                   [--quiet]
+                                   [datasets ...]
+
+Run fmask alone on a series of datasets. The output can then be compared to the reference outputs.
+
+positional arguments:
+  datasets             Optional dataset paths
+
+options:
+  -h, --help           show this help message and exit
+  --test-data-nci      Run default test datasets on NCI
+  --test-data-eod3     Run default test datasets from eodatasets3 repo
+  --out-path OUT_PATH  Path to store outputs
+  --quiet              Set logging to INFO level
+
+```
+
+```bash
+❯ ./cmp-fmask-outputs.py --help
+usage: cmp-fmask-outputs.py [-h] original_directory new_directory
+
+Compare fmask outputs for differences
+
+positional arguments:
+  original_directory  Path to the original directory
+  new_directory       Path to the new directory
+
+options:
+  -h, --help          show this help message and exit
+
+```
