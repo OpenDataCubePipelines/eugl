@@ -48,6 +48,7 @@ def main(
     import eugl.fmask as eugl_fmask
 
     datasets = [Path(p) for p in datasets]
+    # Fail fast.
     for dataset in datasets:
         if not dataset.exists():
             raise ValueError(f"Dataset {dataset} does not exist")

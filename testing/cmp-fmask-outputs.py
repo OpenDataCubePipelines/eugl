@@ -164,22 +164,31 @@ def compare_fmask_images(image1: Path, image2: Path) -> Optional[str]:
     return None
 
 
+def find_one(directory: Path, glob: str) -> Optional[Path]:
+    """Find one file with the given glob, or None"""
+    results = list(directory.glob(glob))
+    if len(results) > 1:
+        raise ValueError(f"Multiple fmasks in directory? {directory}")
+
+    return next(iter(results), None)
+
+
 def compare_test_subdirectories(directory1: Path, directory2: Path) -> List[str]:
     differences = []
 
-    yaml1 = directory1 / "fmask.yaml"
-    yaml2 = directory2 / "fmask.yaml"
-    img1 = directory1 / "fmask.img"
-    img2 = directory2 / "fmask.img"
+    yaml1 = find_one(directory1, "*fmask.yaml")
+    yaml2 = find_one(directory2, "*fmask.yaml")
+    img1 = find_one(directory1, "*fmask.img")
+    img2 = find_one(directory2, "*fmask.img")
 
-    if yaml2.is_file():
+    if yaml2:
         diff = compare_yaml_files(yaml1, yaml2)
         if diff:
             differences.extend(diff)
     else:
         differences.append("Missing fmask.yaml")
 
-    if img2.is_file():
+    if img2:
         diff = compare_fmask_images(img1, img2)
         if diff:
             differences.append(diff)
@@ -199,7 +208,7 @@ def main(root_orig_path: str, root_new_path: str):
         directory1 = test_dataset
         directory2 = root_new / test_dataset.name
 
-        if not (directory1 / "fmask.yaml").is_file():
+        if not find_one(directory1, "*fmask.yaml"):
             # Original data couldn't process it.
             continue
 
