@@ -58,7 +58,7 @@ class LandsatAcquisitionInfo(AcquisitionInfo):
         return int(self.granule[6:9])
 
     def is_land_tile(self, ocean_tile_list):
-        path_row = "{},{}".format(self.path, self.row)
+        path_row = f"{self.path},{self.row}"
 
         with open(ocean_tile_list["Landsat"]) as fl:
             for line in fl:

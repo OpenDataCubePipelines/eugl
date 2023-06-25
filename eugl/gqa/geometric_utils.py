@@ -1,9 +1,7 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 #
 # Functions in this file represent work to be refactored.
 
-from __future__ import print_function
 import datetime
 import logging
 import subprocess
@@ -415,14 +413,14 @@ def reproject(
         "-r",
         resampling,
         "-t_srs",
-        "{}".format(crs),
+        f"{crs}",
         "-srcnodata",
         "0",
         "-dstnodata",
         "0",
         "-tr",
-        "{}".format(res[0]),
-        "{}".format(res[1]),
+        f"{res[0]}",
+        f"{res[1]}",
         "-tap",
         "-tap",
         source_fname,

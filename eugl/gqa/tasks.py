@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 GQA Workflow
 -------------
@@ -10,7 +9,6 @@ Workflow settings can be configured in `luigi.cfg` file.
 # pylint: disable=missing-docstring,no-init,too-many-function-args
 # pylint: disable=too-many-locals
 
-from __future__ import print_function
 
 import math
 import re
@@ -167,7 +165,7 @@ class GverifyTask(luigi.Task):
             # Extract the source band from the results archive
             with h5py.File(self.input()[0].path, "r") as h5:
                 band_id = h5[location].attrs["band_id"]
-                source_band = pjoin(workdir, "source-BAND-{}.tif".format(band_id))
+                source_band = pjoin(workdir, f"source-BAND-{band_id}.tif")
                 source_image = h5[location][:]
                 source_image[source_image == -999] = 0
                 write_img(
@@ -215,7 +213,7 @@ class GverifyTask(luigi.Task):
                 task=self.get_task_family(),
                 params=self.to_str_params(),
                 level1=self.level1,
-                exception="gverify was not executed because:\n {}".format(error_msg),
+                exception=f"gverify was not executed because:\n {error_msg}",
             )
         finally:
             # Write out runtime data to be processed by the gqa task
@@ -410,9 +408,9 @@ def collect_gcp(fix_location, landsat_scenes, result_file):
     """Concatenates gcps from multiple scenes"""
     with open(result_file, "w") as dest:
         for scene in landsat_scenes:
-            path = "{0:0=3d}".format(scene["path"])
-            row = "{0:0=3d}".format(scene["row"])
-            _LOG.debug("collecting GCPs from {} {}".format(path, row))
+            path = "{:0=3d}".format(scene["path"])
+            row = "{:0=3d}".format(scene["row"])
+            _LOG.debug("collecting GCPs from %s %s", path, row)
             scene_gcp_file = pjoin(fix_location, path, row, "points.txt")
             try:
                 with open(scene_gcp_file) as src:
@@ -580,7 +578,7 @@ def build_vrt(reference_images, out_file, work_dir):
         os.makedirs(temp_directory)
 
     common_csr = most_common(reference_images)
-    _LOG.debug("GQA: chosen CRS {}".format(common_csr))
+    _LOG.debug("GQA: chosen CRS %s", common_csr)
 
     def reprojected_images():
         for image in reference_images:
@@ -616,8 +614,8 @@ def get_reference_imagery(path_rows, timestamp, band_id, sat_id, reference_direc
         raise ValueError("No Australian path row found")
 
     def find_references(entry, directories):
-        path = "{0:0=3d}".format(entry["path"])
-        row = "{0:0=3d}".format(entry["row"])
+        path = "{:0=3d}".format(entry["path"])
+        row = "{:0=3d}".format(entry["row"])
 
         if directories == []:
             return []
@@ -719,5 +717,5 @@ def closest_match(folder, timestamp, band_id, sat_id):
 
 
 def _cleanup_workspace(out_path):
-    _LOG.debug("Cleaning up working directory: {}".format(out_path))
+    _LOG.debug("Cleaning up working directory: %s", out_path)
     shutil.rmtree(out_path)

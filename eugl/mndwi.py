@@ -132,12 +132,12 @@ def mndwi(wagl_h5_file, granule, out_fname):
 
         green_ds = granule_fid[green_path]
         chunks = green_ds.chunks
-        nRows, nCols = green_ds.shape
+        n_rows, n_cols = green_ds.shape
         geobox = GriddedGeoBox.from_dataset(green_ds)
         nodata = green_ds.attrs["no_data_value"]
 
         # create output h5 attributes
-        desc = "MNDWI derived with {0} and {1} ({2} reflectances)".format(
+        desc = "MNDWI derived with {} and {} ({} reflectances)".format(
             psplit(green_path)[-1],
             psplit(swir_path)[-1],
             prod,
@@ -174,13 +174,13 @@ def mndwi(wagl_h5_file, granule, out_fname):
         #   and save tiles to h5    #
         # ------------------------- #
         tiles = generate_tiles(
-            samples=nRows, lines=nCols, xtile=chunks[1], ytile=chunks[0]
+            samples=n_rows, lines=n_cols, xtile=chunks[1], ytile=chunks[0]
         )
 
         # create mndwi dataset
         mndwi_ds = mndwi_grp.create_dataset(
             f"mndwi_image_{prod}",
-            shape=(nRows, nCols),
+            shape=(n_rows, n_cols),
             dtype="float32",
             compression="lzf",
             chunks=chunks,
