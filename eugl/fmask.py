@@ -168,9 +168,8 @@ def _landsat_fmask(
     """
     acquisition_path = Path(acquisition.pathname)
 
-    tmp_dir = work_dir / "fmask_imagery"
-    tmp_dir.mkdir(parents=True, exist_ok=True)
-    mtl_path = _extract_mtl(acquisition_path, tmp_dir)
+    work_dir.mkdir(parents=True, exist_ok=True)
+    mtl_path = _extract_mtl(acquisition_path, work_dir)
 
     container = acquisitions(str(acquisition_path))
     # [-1] index Avoids panchromatic band
@@ -284,6 +283,8 @@ def _landsat_fmask(
     fmask_config.setAnglesInfo(angles_info)
     fmask_config.setKeepIntermediates(False)
     fmask_config.setVerbose(False)
+    tmp_dir = work_dir / "tmp"
+    tmp_dir.mkdir(exist_ok=True)
     fmask_config.setTempDir(tmp_dir)
 
     # TODO: Assuming the defaults are the same in the API as in CMD app?

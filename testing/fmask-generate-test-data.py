@@ -90,58 +90,65 @@ def main(
         output_dir = output_dir.resolve()
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        out_fname = output_dir / "fmask.img"
-        metadata_out_fname = output_dir / "fmask.yaml"
+        from wagl.acquisition import acquisitions
 
-        work = output_dir / "work"
-        work.mkdir(exist_ok=True)
-
-        secho(f"Running fmask on {dataset_name!r}", fg="blue")
         try:
             optional_args = {}
             if "clean_up_working_files" in inspect.signature(eugl_fmask.fmask).parameters:
                 optional_args["clean_up_working_files"] = not debug
 
-            if not metadata_out_fname.exists():
-                eugl_fmask.fmask(
-                    dataset_path=dataset.as_posix(),
-                    granule=None,
-                    out_fname=str(out_fname),
-                    metadata_out_fname=str(metadata_out_fname),
-                    workdir=str(work),
-                    acq_parser_hint=None,
-                    cloud_buffer_distance=150.0,
-                    cloud_shadow_buffer_distance=300.0,
-                    parallax_test=False,
-                    **optional_args,
-                )
-                echo(f"Output written to {out_fname.as_posix()!r}")
+            container = acquisitions(str(dataset))
+            for granule in container.granules:
+                granule = granule or "all"
+                secho(f"Running fmask on {dataset_name!r} granule {granule!r}", fg="blue")
 
-            if write_thumb:
-                odc_yaml = output_dir / "dataset.odc-metadata.yaml"
-                if not odc_yaml.exists():
-                    if "S2" in dataset.name.upper():
-                        sentinel_l1_prepare.prepare_and_write(
-                            dataset_location=dataset,
-                            output_yaml=odc_yaml,
-                            producer="esa.int",
-                            embed_location=True,
-                        )
-                    else:
-                        from eodatasets3.prepare import landsat_l1_prepare
+                granule_dir = output_dir / granule
+                granule_dir.mkdir(exist_ok=True)
+                work = granule_dir / "work"
+                work.mkdir(exist_ok=True)
 
-                        landsat_l1_prepare.prepare_and_write(
-                            ds_path=dataset,
-                            output_yaml_path=odc_yaml,
-                            producer="usgs.gov",
-                            embed_location=True,
-                        )
-                    echo(f"ODC metadata written to {odc_yaml.as_posix()!r}")
+                out_fname = granule_dir / "fmask.img"
+                metadata_out_fname = granule_dir / "fmask.yaml"
 
-                thumb_jpg = output_dir / "thumbnail.jpg"
-                if not thumb_jpg.exists():
-                    create_thumbnail(odc_yaml, thumb_jpg)
-                    echo(f"Thumbnail written to {thumb_jpg.as_posix()!r}")
+                if not metadata_out_fname.exists():
+                    eugl_fmask.fmask(
+                        dataset_path=dataset.as_posix(),
+                        granule=granule,
+                        out_fname=str(out_fname),
+                        metadata_out_fname=str(metadata_out_fname),
+                        workdir=str(work),
+                        cloud_buffer_distance=150.0,
+                        cloud_shadow_buffer_distance=300.0,
+                        parallax_test=False,
+                        **optional_args,
+                    )
+                    echo(f"Output written to {out_fname.as_posix()!r}")
+
+                if write_thumb:
+                    odc_yaml = granule_dir / "dataset.odc-metadata.yaml"
+                    if not odc_yaml.exists():
+                        if "S2" in dataset.name.upper():
+                            sentinel_l1_prepare.prepare_and_write(
+                                dataset_location=dataset,
+                                output_yaml=odc_yaml,
+                                producer="esa.int",
+                                embed_location=True,
+                            )
+                        else:
+                            from eodatasets3.prepare import landsat_l1_prepare
+
+                            landsat_l1_prepare.prepare_and_write(
+                                ds_path=dataset,
+                                output_yaml_path=odc_yaml,
+                                producer="usgs.gov",
+                                embed_location=True,
+                            )
+                        echo(f"ODC metadata written to {odc_yaml.as_posix()!r}")
+
+                    thumb_jpg = output_dir / f"{granule}.jpg"
+                    if not thumb_jpg.exists():
+                        create_thumbnail(odc_yaml, thumb_jpg)
+                        echo(f"Thumbnail written to {thumb_jpg.as_posix()!r}")
 
         except Exception as e:
             secho(f"Error processing {dataset.as_posix()!r}: {str(e)}", fg="red")
