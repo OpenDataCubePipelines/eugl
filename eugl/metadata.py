@@ -1,3 +1,6 @@
+from pathlib import Path
+from typing import Dict
+
 try:
     from importlib.metadata import distribution
 except ImportError:
@@ -10,11 +13,15 @@ from idl_functions import histogram
 from wagl.acquisition import xml_via_safe
 import zipfile
 import re
+import logging
+import numpy as np
+
+_LOG = logging.getLogger(__name__)
 
 # TODO: Fix update to merge the dictionaries
 
 
-def _get_eugl_metadata():
+def _get_eugl_metadata() -> Dict:
     dist = distribution("eugl")
     return {
         "software_versions": {
@@ -23,7 +30,7 @@ def _get_eugl_metadata():
     }
 
 
-def _get_fmask_metadata():
+def _get_fmask_metadata() -> Dict:
     base_info = _get_eugl_metadata()
     dist = distribution("python-fmask")
     base_info["software_versions"]["fmask"] = {
@@ -34,7 +41,7 @@ def _get_fmask_metadata():
     return base_info
 
 
-def _get_s2cloudless_metadata():
+def _get_s2cloudless_metadata() -> Dict:
     base_info = _get_eugl_metadata()
     dist = distribution("s2cloudless")
     base_info["software_versions"]["s2cloudless"] = {
@@ -45,7 +52,7 @@ def _get_s2cloudless_metadata():
     return base_info
 
 
-def get_gqa_metadata(gverify_executable):
+def get_gqa_metadata(gverify_executable: str) -> Dict:
     """get_gqa_metadata: provides processing metadata for gqa_processing
 
     :param gverify_executable: GQA version is determined from executable
@@ -59,7 +66,7 @@ def get_gqa_metadata(gverify_executable):
     return base_info
 
 
-def _gls_version(ref_fname):
+def _gls_version(ref_fname: str) -> str:
     # TODO a more appropriate method of version detection and/or population of metadata
     if "GLS2000_GCP_SCENE" in ref_fname:
         gls_version = "GLS_v1"
@@ -70,51 +77,45 @@ def _gls_version(ref_fname):
 
 
 def fmask_metadata(
-    fname,
-    out_fname,
-    cloud_buffer_distance=150.0,
-    cloud_shadow_buffer_distance=300.0,
-    parallax_test=False,
+    fmask_img_path: Path,
+    output_metadata_path: Path,
+    cloud_buffer_distance: float = 150.0,
+    cloud_shadow_buffer_distance: float = 300.0,
+    parallax_test: bool = False,
 ):
     """
     Produce a yaml metadata document.
 
-    :param fname:
+    :param fmask_img_path:
         A fully qualified name to the file containing the output
         from the import Fmask algorithm.
-    :type fname: str
 
-    :param out_fname:
+    :param output_metadata_path:
         A fully qualified name to a file that will contain the
         metadata.
-    :type out_fname: str
 
     :param cloud_buffer_distance:
         Distance (in metres) to buffer final cloud objects. Default
         is 150m.
-    :type cloud_buffer_distance: float
 
     :param cloud_shadow_buffer_distance:
         Distance (in metres) to buffer final cloud shadow objects.
         Default is 300m.
-    :type cloud_shadow_buffer_distance: float
 
     :param parallax_test:
         A bool of whether to turn on the parallax displacement test
         from Frantz (2018). Default is False.
         Setting this parameter to True has no effect for Landsat
         scenes.
-    :type parallax_test: bool
 
     :return:
         None.  Metadata is written directly to disk.
     :rtype: None
     """
-    with rasterio.open(fname) as ds:
+    with rasterio.open(fmask_img_path) as ds:
         hist = histogram(ds.read(1), minv=0, maxv=5)["histogram"]
 
-    # base info (software versions)
-    base_info = _get_fmask_metadata()
+    _LOG.info("Histogram: %r", hist)
 
     # Classification schema
     # 0 -> Invalid
@@ -125,10 +126,17 @@ def fmask_metadata(
     # 5 -> Water
 
     # info will be based on the valid pixels only (exclude 0)
-    # scaled probability density function
-    pdf = hist[1:] / hist[1:].sum() * 100
+    valid_pixl_count = hist[1:].sum()
+    if valid_pixl_count == 0:
+        # When everything's invalid, consider the output NaN
+        # (matching old fmask behaviour).
+        pdf = np.full(hist[1:].shape, np.nan)
+    else:
+        # Scaled probability density function
+        pdf = hist[1:] / valid_pixl_count * 100
 
     md = {
+        **_get_fmask_metadata(),
         "parameters": {
             "cloud_buffer_distance_metres": cloud_buffer_distance,
             "cloud_shadow_buffer_distance_metres": cloud_shadow_buffer_distance,
@@ -143,10 +151,7 @@ def fmask_metadata(
         },
     }
 
-    for key, value in base_info.items():
-        md[key] = value
-
-    with open(out_fname, "w") as src:
+    with output_metadata_path.open("w") as src:
         yaml.safe_dump(md, src, default_flow_style=False, indent=4)
 
 
@@ -227,7 +232,7 @@ def grab_offset_dict(dataset_path):
         # in the NRT pipeline, the offsets have already been applied
         return {}
 
-    xml_root = xml_via_safe(archive, dataset_path)
+    xml_root = xml_via_safe(archive, str(dataset_path))
 
     # ESA image ids
     esa_ids = [

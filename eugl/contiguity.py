@@ -1,4 +1,3 @@
-# coding=utf-8
 """
 Execution method for contiguous observations within band stack
 
@@ -6,7 +5,6 @@ example usage:
     contiguity.py <allbands.vrt>
     --output /tmp/
 """
-from __future__ import absolute_import
 import os
 import logging
 from pathlib import Path

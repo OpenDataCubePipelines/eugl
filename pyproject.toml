@@ -1,5 +1,18 @@
+[project]
+requires-python = ">=3.6"
+
 [build-system]
 requires = ["setuptools>=42", "wheel", "setuptools_scm[toml]>=3.4"]
+
+[tool.ruff]
+line-length = 90
+# Which checkers to enable?
+select = [
+  "E",   # pycodestyle
+  "F",   # pyflakes
+  "UP",  # pyupgrade
+  "N", # pep8-naming
+]
 
 [tool.black]
 line-length = 90
