@@ -277,7 +277,7 @@ class GverifyTask(luigi.Task):
         cmd = [" ".join(chain(wrapper, gverify, extra))]
 
         _LOG.debug("calling gverify {}".format(" ".join(cmd)))
-        run_command(cmd, outdir, timeout=self.timeout, command_name="gverify")
+        run_command(cmd, outdir, timeout=self.timeout, command_name="gverify", allow_shell=True)
 
 
 class GQATask(luigi.Task):
