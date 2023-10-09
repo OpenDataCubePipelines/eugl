@@ -1,3 +1,6 @@
+
+*Note*: This repository has been archived and now exists within [ard-pipeline](https://github.com/OpenDataCubePipelines/ard-pipeline).
+
 # eugl
 Sensor acquisition data quality characterisation
 
